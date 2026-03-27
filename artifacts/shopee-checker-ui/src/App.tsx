@@ -20,6 +20,94 @@ async function verifyApiKey(key: string): Promise<boolean> {
   } catch { return false; }
 }
 
+/* ─── Spider Web Canvas ─────────────────────────────────── */
+function SpiderWeb({ dark }: { dark: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    let W = window.innerWidth, H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+
+    const COUNT = 55;
+    const MAX_DIST = 140;
+    const dots = Array.from({ length: COUNT }, () => ({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5,
+      r: Math.random() * 2 + 1,
+    }));
+
+    let mouse = { x: -9999, y: -9999 };
+    const onMove = (e: MouseEvent) => { mouse.x = e.clientX; mouse.y = e.clientY; };
+    window.addEventListener("mousemove", onMove, { passive: true });
+
+    const onResize = () => {
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W; canvas.height = H;
+    };
+    window.addEventListener("resize", onResize);
+
+    const dotColor = dark ? "rgba(238,77,45,0.5)" : "rgba(238,77,45,0.35)";
+    const lineColor = dark ? "rgba(238,77,45," : "rgba(180,60,20,";
+
+    let raf: number;
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      // Move dots
+      for (const d of dots) {
+        d.x += d.vx; d.y += d.vy;
+        if (d.x < 0 || d.x > W) d.vx *= -1;
+        if (d.y < 0 || d.y > H) d.vy *= -1;
+      }
+      // Draw lines between close dots
+      for (let i = 0; i < dots.length; i++) {
+        for (let j = i + 1; j < dots.length; j++) {
+          const dx = dots[i].x - dots[j].x, dy = dots[i].y - dots[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < MAX_DIST) {
+            const alpha = (1 - dist / MAX_DIST) * 0.35;
+            ctx.beginPath();
+            ctx.moveTo(dots[i].x, dots[i].y);
+            ctx.lineTo(dots[j].x, dots[j].y);
+            ctx.strokeStyle = lineColor + alpha + ")";
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+        // Connect to mouse
+        const mx = dots[i].x - mouse.x, my = dots[i].y - mouse.y;
+        const md = Math.sqrt(mx * mx + my * my);
+        if (md < 150) {
+          const alpha = (1 - md / 150) * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(dots[i].x, dots[i].y);
+          ctx.lineTo(mouse.x, mouse.y);
+          ctx.strokeStyle = lineColor + alpha + ")";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+      // Draw dots
+      for (const d of dots) {
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+        ctx.fillStyle = dotColor;
+        ctx.fill();
+      }
+      raf = requestAnimationFrame(draw);
+    }
+    draw();
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [dark]);
+
+  return <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }} />;
+}
+
 /* ─── Cursor Effect ─────────────────────────────────────── */
 function Cursor() {
   const dotRef = useRef<HTMLDivElement>(null);
@@ -40,26 +128,22 @@ function Cursor() {
   }, []);
   return (
     <>
-      <div ref={dotRef} style={{ position: "fixed", width: 8, height: 8, borderRadius: "50%", background: "#ee4d2d", pointerEvents: "none", transform: "translate(-50%,-50%)", zIndex: 99999, transition: "background .2s" }} />
-      <div ref={ringRef} style={{ position: "fixed", width: 32, height: 32, borderRadius: "50%", border: "2px solid #ee4d2d", pointerEvents: "none", transform: "translate(-50%,-50%)", zIndex: 99998, opacity: 0.5, transition: "left .08s,top .08s,opacity .2s" }} />
+      <div ref={dotRef} style={{ position: "fixed", width: 8, height: 8, borderRadius: "50%", background: "#ee4d2d", pointerEvents: "none", transform: "translate(-50%,-50%)", zIndex: 99999 }} />
+      <div ref={ringRef} style={{ position: "fixed", width: 36, height: 36, borderRadius: "50%", border: "2px solid #ee4d2d", pointerEvents: "none", transform: "translate(-50%,-50%)", zIndex: 99998, opacity: 0.45, transition: "left .09s,top .09s" }} />
     </>
   );
 }
 
-/* ─── 3D Card Hook ──────────────────────────────────────── */
-function use3D() {
+/* ─── Lift Card Hook (mengangkat ke atas) ───────────────── */
+function useLift() {
   const ref = useRef<HTMLDivElement>(null);
-  const onMove = useCallback((e: React.MouseEvent) => {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width - 0.5) * 14;
-    const y = ((e.clientY - r.top) / r.height - 0.5) * -14;
-    el.style.transform = `perspective(700px) rotateY(${x}deg) rotateX(${y}deg) scale3d(1.02,1.02,1.02)`;
+  const onEnter = useCallback(() => {
+    if (ref.current) ref.current.style.transform = "translateY(-8px) scale(1.015)";
   }, []);
   const onLeave = useCallback(() => {
-    if (ref.current) ref.current.style.transform = "perspective(700px) rotateY(0) rotateX(0) scale3d(1,1,1)";
+    if (ref.current) ref.current.style.transform = "translateY(0) scale(1)";
   }, []);
-  return { ref, onMove, onLeave };
+  return { ref, onEnter, onLeave };
 }
 
 /* ─── Copy Button ───────────────────────────────────────── */
@@ -73,74 +157,81 @@ function CopyBtn({ text, dark }: { text: string; dark: boolean }) {
   );
 }
 
-/* ─── Code Tab ──────────────────────────────────────────── */
-const CODE: Record<string, Record<Lang, string>> = {
-  check: {
-    python: `import requests
+/* ─── Code Examples (auto base URL) ────────────────────── */
+function makeCode(baseUrl: string, apiKey: string): Record<string, Record<Lang, string>> {
+  const url = baseUrl;
+  const key = apiKey || "YOUR_API_KEY";
+  return {
+    check: {
+      python: `import requests
 
-api_key = "YOUR_API_KEY"
+api_key = "${key}"
 phone   = "081234567890"
 
 resp = requests.get(
-    "https://your-domain/shopee/check",
+    "${url}/shopee/check",
     params={"phone": phone, "apikey": api_key},
     timeout=30
 )
 print(resp.json())
 # {'registered': True, 'phone': '628...', 'message': '...'}`,
-    nodejs: `const apiKey = "YOUR_API_KEY";
+      nodejs: `const apiKey = "${key}";
 const phone  = "081234567890";
 
-const url = \`https://your-domain/shopee/check?phone=\${phone}&apikey=\${apiKey}\`;
-const res  = await fetch(url);
+const res  = await fetch(
+  \`${url}/shopee/check?phone=\${phone}&apikey=\${apiKey}\`
+);
 const data = await res.json();
 console.log(data);
 // { registered: true, phone: '628...', message: '...' }`,
-    php: `<?php
-$apiKey = "YOUR_API_KEY";
+      php: `<?php
+$apiKey = "${key}";
 $phone  = "081234567890";
 
-$url  = "https://your-domain/shopee/check"
+$url  = "${url}/shopee/check"
       . "?phone=" . urlencode($phone)
       . "&apikey=" . urlencode($apiKey);
 
 $json = file_get_contents($url);
 $data = json_decode($json, true);
 print_r($data);
-// Array ( [registered] => 1 [phone] => 628... )
 ?>`,
-  },
-  health: {
-    python: `import requests
-resp = requests.get("https://your-domain/shopee/health")
-print(resp.json())  # {"status": "ok", "version": "5.0.0"}`,
-    nodejs: `const res  = await fetch("https://your-domain/shopee/health");
+    },
+    health: {
+      python: `import requests
+resp = requests.get("${url}/shopee/health")
+print(resp.json())  # {"status": "ok"}`,
+      nodejs: `const res  = await fetch("${url}/shopee/health");
 const data = await res.json();
-console.log(data); // { status: 'ok', version: '5.0.0' }`,
-    php: `<?php
-$json = file_get_contents("https://your-domain/shopee/health");
+console.log(data); // { status: 'ok' }`,
+      php: `<?php
+$json = file_get_contents("${url}/shopee/health");
 print_r(json_decode($json, true));
 ?>`,
-  },
-  verify: {
-    python: `import requests
+    },
+    verify: {
+      python: `import requests
 resp = requests.get(
-    "https://your-domain/api/auth/verify",
-    params={"apikey": "YOUR_API_KEY"}
+    "${url}/api/auth/verify",
+    params={"apikey": "${key}"}
 )
 print(resp.json())  # {"valid": True}`,
-    nodejs: `const res  = await fetch("https://your-domain/api/auth/verify?apikey=YOUR_API_KEY");
+      nodejs: `const res  = await fetch(
+  "${url}/api/auth/verify?apikey=${key}"
+);
 const data = await res.json();
 console.log(data); // { valid: true }`,
-    php: `<?php
-$url  = "https://your-domain/api/auth/verify?apikey=" . urlencode("YOUR_API_KEY");
+      php: `<?php
+$url = "${url}/api/auth/verify?apikey=" . urlencode("${key}");
 print_r(json_decode(file_get_contents($url), true));
 ?>`,
-  },
-};
+    },
+  };
+}
 
-function CodeBlock({ endpointKey, dark }: { endpointKey: string; dark: boolean }) {
+function CodeBlock({ endpointKey, baseUrl, apiKey, dark }: { endpointKey: string; baseUrl: string; apiKey: string; dark: boolean }) {
   const [lang, setLang] = useState<Lang>("python");
+  const CODE = makeCode(baseUrl, apiKey);
   const code = CODE[endpointKey]?.[lang] ?? "";
   const langs: Lang[] = ["python", "nodejs", "php"];
   return (
@@ -176,7 +267,7 @@ function AttrBadge({ dark }: { dark: boolean }) {
 /* ─── Login View ─────────────────────────────────────────── */
 function LoginView({ onLogin, dark }: { onLogin: (k: string) => void; dark: boolean }) {
   const [key, setKey] = useState(""); const [loading, setLoading] = useState(false); const [err, setErr] = useState("");
-  const { ref, onMove, onLeave } = use3D();
+  const { ref, onEnter, onLeave } = useLift();
   async function submit(e: React.FormEvent) {
     e.preventDefault(); if (!key.trim()) return;
     setLoading(true); setErr("");
@@ -186,7 +277,7 @@ function LoginView({ onLogin, dark }: { onLogin: (k: string) => void; dark: bool
     else setErr("API Key tidak valid atau sudah expired");
   }
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 ${dark ? "bg-gray-950" : "bg-gradient-to-br from-orange-50 via-white to-red-50"}`}>
+    <div className={`min-h-screen flex items-center justify-center p-4 relative z-10 ${dark ? "bg-gray-950/80" : "bg-white/60"}`} style={{ backdropFilter: "blur(0px)" }}>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-orange-500 to-red-600 shadow-2xl shadow-orange-500/40 mb-5">
@@ -196,8 +287,8 @@ function LoginView({ onLogin, dark }: { onLogin: (k: string) => void; dark: bool
           <p className={`mt-1 text-sm font-medium ${dark ? "text-orange-400" : "text-orange-600"}`}>Shopee Checker P3sstar</p>
           <p className={`mt-2 text-xs ${dark ? "text-gray-500" : "text-gray-400"}`}>Masukkan API Key untuk melanjutkan</p>
         </div>
-        <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave} style={{ transition: "transform .15s ease-out" }}>
-          <div className={`rounded-2xl shadow-xl p-6 ${dark ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-100"}`}>
+        <div ref={ref} onMouseEnter={onEnter} onMouseLeave={onLeave} style={{ transition: "transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s" }}>
+          <div className={`rounded-2xl shadow-xl p-6 ${dark ? "bg-gray-800/90 border border-gray-700" : "bg-white/90 border border-gray-100"}`}>
             <form onSubmit={submit}>
               <label className={`block text-sm font-medium mb-2 ${dark ? "text-gray-300" : "text-gray-700"}`}>API Key</label>
               <input type="text" value={key} onChange={e => setKey(e.target.value)} disabled={loading}
@@ -238,7 +329,7 @@ function Navbar({ view, setView, dark, setDark, onLogout }: { view: View; setVie
       ))}
       <div className="ml-auto flex items-center gap-2">
         <button onClick={() => { setDark(!dark); localStorage.setItem("dark", String(!dark)); }}
-          className={`p-2 rounded-xl transition ${dark ? "bg-gray-800 text-yellow-400 hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`} title="Toggle dark mode">
+          className={`p-2 rounded-xl transition ${dark ? "bg-gray-800 text-yellow-400 hover:bg-gray-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
           {dark ? "☀️" : "🌙"}
         </button>
         <button onClick={onLogout} className={`text-xs px-3 py-2 rounded-xl transition font-medium ${dark ? "text-gray-500 hover:text-red-400 hover:bg-gray-800" : "text-gray-500 hover:text-red-600 hover:bg-red-50"}`}>Keluar</button>
@@ -250,7 +341,7 @@ function Navbar({ view, setView, dark, setDark, onLogout }: { view: View; setVie
 /* ─── Checker View ───────────────────────────────────────── */
 function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
   const [phone, setPhone] = useState(""); const [status, setStatus] = useState<CheckStatus>("idle"); const [errMsg, setErrMsg] = useState("");
-  const { ref, onMove, onLeave } = use3D();
+  const { ref, onEnter, onLeave } = useLift();
   const masked = apiKey.slice(0, 8) + "••••••" + apiKey.slice(-6);
   const [showKey, setShowKey] = useState(false);
 
@@ -261,32 +352,22 @@ function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
     try {
       const r = await fetch(`/shopee/check?phone=${encodeURIComponent(norm)}&apikey=${encodeURIComponent(apiKey)}`);
       const d = await r.json();
-      if (!r.ok || d.error || d.status === "error") {
-        setErrMsg("Server error, silahkan hubungi admin");
-        setStatus("error");
-        return;
-      }
-      if (typeof d.registered !== "boolean") {
-        setErrMsg("Server error, silahkan hubungi admin");
-        setStatus("error");
-        return;
-      }
+      if (!r.ok || d.error || d.status === "error") { setErrMsg("Server error, silahkan hubungi admin"); setStatus("error"); return; }
+      if (typeof d.registered !== "boolean") { setErrMsg("Server error, silahkan hubungi admin"); setStatus("error"); return; }
       setStatus(d.registered ? "registered" : "not_registered");
     } catch { setErrMsg("Server error, silahkan hubungi admin"); setStatus("error"); }
   }
 
   const c = {
-    card: dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100",
+    card: dark ? "bg-gray-800/90 border-gray-700" : "bg-white/90 border-gray-100",
     input: dark ? "bg-gray-900 border-gray-600 text-gray-200 placeholder-gray-600 focus:border-orange-500" : "bg-white border-gray-200 text-gray-900 placeholder-gray-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-100",
     prefix: dark ? "bg-gray-900 border-gray-600 text-gray-400" : "bg-gray-50 border-gray-200 text-gray-500",
-    label: dark ? "text-gray-300" : "text-gray-700",
   };
 
   return (
-    <div className={`min-h-screen pb-16 ${dark ? "bg-gray-950" : "bg-gray-50"}`}>
+    <div className={`min-h-screen pb-16 relative z-10`}>
       <div className="max-w-lg mx-auto px-4 pt-8">
-        {/* API Key Card */}
-        <div className={`rounded-2xl border shadow-sm p-5 mb-6 ${c.card}`}>
+        <div className={`rounded-2xl border shadow-sm p-5 mb-6 backdrop-blur-sm ${c.card}`}>
           <div className={`text-xs font-semibold mb-2 uppercase tracking-wider ${dark ? "text-gray-500" : "text-gray-400"}`}>API Key Aktif</div>
           <div className="flex items-center gap-2">
             <code className={`flex-1 text-sm font-mono break-all ${dark ? "text-gray-300" : "text-gray-700"}`}>{showKey ? apiKey : masked}</code>
@@ -295,11 +376,10 @@ function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
           </div>
         </div>
 
-        {/* Checker Form */}
-        <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave} style={{ transition: "transform .18s ease-out" }}>
-          <div className={`rounded-2xl border shadow-xl p-6 ${c.card}`}>
+        <div ref={ref} onMouseEnter={onEnter} onMouseLeave={onLeave} style={{ transition: "transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s" }}>
+          <div className={`rounded-2xl border shadow-xl p-6 backdrop-blur-sm ${c.card}`}>
             <h2 className={`text-lg font-bold mb-5 ${dark ? "text-white" : "text-gray-900"}`}>🔍 Cek Nomor HP</h2>
-            <label className={`block text-sm font-medium mb-2 ${c.label}`}>Nomor Telepon</label>
+            <label className={`block text-sm font-medium mb-2 ${dark ? "text-gray-300" : "text-gray-700"}`}>Nomor Telepon</label>
             <div className="flex gap-2">
               <div className={`flex items-center px-3 border rounded-xl text-sm font-bold select-none flex-shrink-0 ${c.prefix}`}>+62</div>
               <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} onKeyDown={e => e.key === "Enter" && check()} disabled={status === "loading"}
@@ -308,7 +388,7 @@ function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
             </div>
             <button onClick={check} disabled={status === "loading" || !phone.trim()}
               className="mt-4 w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30">
-              {status === "loading" ? <><svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Mengecek (~10 detik)...</> : "Cek Nomor"}
+              {status === "loading" ? <><svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Mengecek...</> : "Cek Nomor"}
             </button>
 
             {status === "registered" && (
@@ -337,7 +417,7 @@ function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
             )}
           </div>
         </div>
-        <p className={`text-center text-xs mt-4 ${dark ? "text-gray-700" : "text-gray-400"}`}>Hasil cek biasanya ~10 detik · injectorapiv7</p>
+        <p className={`text-center text-xs mt-4 ${dark ? "text-gray-700" : "text-gray-400"}`}>injectorapiv7 · Shopee Checker P3sstar</p>
       </div>
     </div>
   );
@@ -345,50 +425,41 @@ function CheckerView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
 
 /* ─── Docs View ──────────────────────────────────────────── */
 function DocsView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
-  const { ref: r1, onMove: m1, onLeave: l1 } = use3D();
-  const { ref: r2, onMove: m2, onLeave: l2 } = use3D();
-  const { ref: r3, onMove: m3, onLeave: l3 } = use3D();
+  const { ref: r1, onEnter: e1, onLeave: l1 } = useLift();
+  const { ref: r2, onEnter: e2, onLeave: l2 } = useLift();
+  const { ref: r3, onEnter: e3, onLeave: l3 } = useLift();
   const baseUrl = window.location.origin;
 
   const c = {
-    page: dark ? "bg-gray-950" : "bg-gray-50",
-    card: dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100",
+    card: dark ? "bg-gray-800/90 border-gray-700" : "bg-white/90 border-gray-100",
     text: dark ? "text-gray-300" : "text-gray-600",
     head: dark ? "text-white" : "text-gray-900",
     sub: dark ? "text-gray-500" : "text-gray-400",
-    divider: dark ? "border-gray-700" : "border-gray-100",
   };
 
   const endpointCard = (
     ref: React.RefObject<HTMLDivElement | null>,
-    onMove: (e: React.MouseEvent) => void,
-    onLeave: () => void,
-    method: string,
-    path: string,
-    auth: boolean,
+    onEnter: () => void, onLeave: () => void,
+    method: string, path: string, auth: boolean,
     desc: string,
     params: { name: string; req: boolean; desc: string }[],
-    response: string,
-    codeKey: string,
-    note?: string
+    response: string, codeKey: string, note?: string
   ) => (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave} style={{ transition: "transform .18s ease-out" }}>
-      <div className={`rounded-2xl border shadow-sm p-6 mb-6 ${c.card}`}>
+    <div ref={ref} onMouseEnter={onEnter} onMouseLeave={onLeave}
+      style={{ transition: "transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s" }}>
+      <div className={`rounded-2xl border shadow-sm p-6 mb-6 backdrop-blur-sm ${c.card}`}>
         <div className="flex flex-wrap items-center gap-3 mb-3">
           <span className="px-2.5 py-1 bg-green-100 text-green-800 text-xs font-extrabold rounded-lg">{method}</span>
           <code className={`text-sm font-mono font-bold ${c.head}`}>{path}</code>
           {auth && <span className="px-2.5 py-1 text-xs bg-orange-100 text-orange-700 rounded-full font-semibold">🔑 Auth</span>}
           <div className="ml-auto"><AttrBadge dark={dark} /></div>
         </div>
-
         <p className={`text-sm mb-4 ${c.text}`}>{desc}</p>
-
         {note && (
           <div className={`text-xs rounded-xl p-3 mb-4 ${dark ? "bg-yellow-900/30 text-yellow-400 border border-yellow-700" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
             ⚠️ {note}
           </div>
         )}
-
         {params.length > 0 && (
           <div className="mb-4">
             <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${c.sub}`}>Parameter</p>
@@ -403,11 +474,9 @@ function DocsView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
             </div>
           </div>
         )}
-
-        <CodeBlock endpointKey={codeKey} dark={dark} />
-
-        <div className={`mt-4 bg-gray-900 rounded-xl overflow-hidden`}>
-          <div className={`px-4 py-2 border-b border-gray-700 text-xs text-gray-400 font-mono`}>Contoh Respons</div>
+        <CodeBlock endpointKey={codeKey} baseUrl={baseUrl} apiKey={apiKey} dark={dark} />
+        <div className="mt-4 bg-gray-900 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-gray-700 text-xs text-gray-400 font-mono">Contoh Respons</div>
           <pre className="text-xs text-blue-300 font-mono px-4 py-3 overflow-x-auto">{response}</pre>
         </div>
       </div>
@@ -415,7 +484,7 @@ function DocsView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
   );
 
   return (
-    <div className={`min-h-screen pb-16 ${c.page}`}>
+    <div className="min-h-screen pb-16 relative z-10">
       <div className="max-w-3xl mx-auto px-4 pt-8">
         <div className="mb-6">
           <h2 className={`text-2xl font-extrabold ${c.head}`}>Dokumentasi API</h2>
@@ -423,25 +492,27 @@ function DocsView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
           <p className={`text-xs mt-1 ${c.sub}`}>API Key: sertakan di query param <code className={`${dark ? "bg-gray-700" : "bg-gray-100"} px-1 rounded`}>apikey</code> atau header <code className={`${dark ? "bg-gray-700" : "bg-gray-100"} px-1 rounded`}>X-Api-Key</code></p>
         </div>
 
-        {endpointCard(r1, m1, l1, "GET", "/shopee/check", true, "Cek apakah nomor HP terdaftar di Shopee. Waktu proses ±10 detik karena inject langsung di server Shopee.",
+        {endpointCard(r1, e1, l1, "GET", "/shopee/check", true,
+          "Cek apakah nomor HP terdaftar di Shopee. Jika terjadi error, harap maklumi — kami inject langsung di server Shopee.",
           [{ name: "phone", req: true, desc: "Nomor HP Indonesia (format: 08xx atau 628xx)" }, { name: "apikey", req: true, desc: "API Key kamu yang masih aktif" }],
-          `{ "registered": true, "phone": "628123...", "message": "Nomor terdaftar di Shopee", "elapsed_ms": 8700 }`,
+          `{ "registered": true, "phone": "628123...", "message": "Nomor terdaftar di Shopee", "elapsed_ms": 5200 }`,
           "check", "Jika terjadi error, harap maklumi — kami inject langsung di server Shopee")}
 
-        {endpointCard(r2, m2, l2, "GET", "/shopee/health", false, "Cek status dan ketersediaan service Shopee Phone Checker.",
-          [],
-          `{ "status": "ok", "version": "5.0.0", "pool_size": 2 }`,
+        {endpointCard(r2, e2, l2, "GET", "/shopee/health", false,
+          "Cek status dan ketersediaan service Shopee Phone Checker.", [],
+          `{ "status": "ok", "version": "5.1.0", "pool_size": 2, "max_retries": 2 }`,
           "health")}
 
-        {endpointCard(r3, m3, l3, "GET", "/api/auth/verify", false, "Verifikasi apakah API Key valid dan belum expired.",
+        {endpointCard(r3, e3, l3, "GET", "/api/auth/verify", false,
+          "Verifikasi apakah API Key valid dan belum expired.",
           [{ name: "apikey", req: true, desc: "API Key yang akan diverifikasi" }],
           `{ "valid": true }`,
           "verify")}
 
-        <div className={`rounded-2xl border p-5 mt-6 ${dark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-100"}`}>
+        <div className={`rounded-2xl border p-5 mt-6 backdrop-blur-sm ${c.card}`}>
           <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${c.sub}`}>Kode Status HTTP</p>
           <div className="space-y-2">
-            {[["200", "Berhasil", "green"], ["401", "API Key tidak valid, tidak ada, atau sudah expired", "yellow"], ["503", "Service Shopee sedang tidak tersedia / sedang dimaintenance", "red"]].map(([code, desc, color]) => (
+            {[["200", "Berhasil", "green"], ["401", "API Key tidak valid atau expired", "yellow"], ["500", "Server error / Shopee tidak tersedia (auto-retry 2x)", "red"]].map(([code, desc, color]) => (
               <div key={code} className="flex items-start gap-3 text-sm">
                 <code className={`text-xs px-2 py-0.5 rounded font-mono font-bold flex-shrink-0 ${color === "green" ? "bg-green-100 text-green-700" : color === "yellow" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{code}</code>
                 <span className={c.text}>{desc}</span>
@@ -449,7 +520,6 @@ function DocsView({ apiKey, dark }: { apiKey: string; dark: boolean }) {
             ))}
           </div>
         </div>
-
         <div className={`text-center text-xs mt-8 ${c.sub}`}>
           Shopee Phone Checker ApiV2 · Shopee Checker P3sstar · dibuat oleh injectorapiv7
         </div>
@@ -487,9 +557,10 @@ export default function App() {
   );
 
   return (
-    <div style={{ cursor: "none" }}>
-      <Cursor />
+    <div style={{ cursor: "none" }} className={`min-h-screen ${dark ? "bg-gray-950" : "bg-gradient-to-br from-orange-50 via-white to-red-50"}`}>
       <style>{`* { cursor: none !important; }`}</style>
+      <Cursor />
+      <SpiderWeb dark={dark} />
       {!apiKey
         ? <LoginView onLogin={k => { setApiKey(k); setView("checker"); }} dark={dark} />
         : <>
