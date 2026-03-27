@@ -50,6 +50,23 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 
 ## Packages
 
+### `artifacts/shopee-checker` (Python FastAPI service)
+
+Standalone Python service that validates whether a phone number is registered on Shopee.co.id. Runs as a separate workflow on port 5000 (set via `PORT` env var or `SHOPEE_SERVICE_PORT`).
+
+- Entry: `main.py` — FastAPI + Playwright headless Chrome
+- Endpoint: `GET /check?phone=<nomor>` — returns `{status, message, phone, registered, elapsed_ms}`
+  - `status: "registered"` — phone is registered on Shopee
+  - `status: "not_registered"` — phone is NOT registered
+  - `status: "blocked"` — Shopee bot detection triggered
+  - `status: "error"` — validation or connection error
+  - `status: "unknown"` — no API response received
+- `GET /health` — service health check
+- Approach (v5): Navigate to login page first → `window.location.href` to reset page (bypasses Shopee bot detection on direct navigation) → disable `#modal *` pointer-events → `fill()` phone number → `press("Enter")` → intercept `check_account_exist` JSON response
+- Key fix: Use real Windows/Mac Chrome User-Agent (not HeadlessChrome) in context AND stealth override
+- Startup: `artifacts/shopee-checker/start.sh` (sets `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to NixOS system Chromium)
+- The Express API server proxies `/api/shopee/*` → `localhost:5000` (strips `/api/shopee` prefix)
+
 ### `artifacts/api-server` (`@workspace/api-server`)
 
 Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
