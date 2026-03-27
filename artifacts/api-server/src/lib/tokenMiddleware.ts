@@ -21,13 +21,23 @@ export async function requireToken(req: Request, res: Response, next: NextFuncti
     }
 
     const phone = req.query.phone as string | undefined;
-    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+    const ip =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
 
     res.on("finish", () => {
       if (!tokenId) return;
-      const status = res.statusCode < 400 ? "success" : "error";
-      const errorReason = status === "error" ? `HTTP ${res.statusCode}` : null;
-      logApiCall(tokenId, phone, status, errorReason, res.statusCode, ip).catch(() => {});
+      const httpStatus = res.statusCode;
+      const status = httpStatus < 400 ? "success" : "error";
+
+      // Use detailed error reason from route handler if available
+      const errorReason =
+        status === "error"
+          ? (res.locals.errorReason as string | undefined) || `HTTP ${httpStatus}`
+          : null;
+
+      logApiCall(tokenId, phone, status, errorReason, httpStatus, ip).catch(() => {});
     });
 
     next();
