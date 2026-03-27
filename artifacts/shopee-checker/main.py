@@ -41,7 +41,23 @@ CHROME_ARGS = [
     "--mute-audio",
     "--hide-scrollbars",
     "--disable-infobars",
+    # Anti-detection
+    "--disable-blink-features=AutomationControlled",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--disable-web-security",
+    "--allow-running-insecure-content",
+    "--disable-extensions",
+    "--no-default-browser-check",
+    "--disable-popup-blocking",
+    "--lang=id-ID",
 ]
+
+# Status yang BISA di-retry (bukan validation error)
+RETRYABLE_STATUSES = {"error", "blocked", "unknown", "timeout"}
+
+MAX_RETRIES = 2  # Total coba: 1 awal + 2 ulang = 3x
+RETRY_DELAY_MIN = 3.0
+RETRY_DELAY_MAX = 7.0
 
 # ========================
 # USER AGENT PROFILES
@@ -176,8 +192,8 @@ PHONE_INPUT_XPATH = [
 
 # URL reset page yang akan dicoba berurutan (scenario=7 lalu fallback ke scenario=3)
 RESET_URLS = [
-    "https://shopee.co.id/buyer/reset?scenario=7",
-    "https://shopee.co.id/buyer/reset?scenario=3",
+    "https://shopee.co.id/buyer/reset",
+    "https://shopee.co.id/buyer/reset",
 ]
 
 POPUP_SELECTORS = [
@@ -192,6 +208,45 @@ POPUP_SELECTORS = [
     "[aria-label='Close']",
     ".shopee-popup--close-btn",
 ]
+
+
+async def human_type(page, element, text: str) -> None:
+    """Ketik teks karakter per karakter seperti manusia (delay acak antar karakter)."""
+    await element.click()
+    await page.wait_for_timeout(random.randint(100, 300))
+    for char in text:
+        await element.type(char, delay=random.randint(60, 180))
+    await page.wait_for_timeout(random.randint(200, 500))
+
+
+async def random_mouse_move(page) -> None:
+    """Gerak mouse acak di area tengah halaman untuk simulasi perilaku manusia."""
+    try:
+        vp = page.viewport_size or {"width": 1366, "height": 768}
+        w, h = vp["width"], vp["height"]
+        for _ in range(random.randint(2, 4)):
+            x = random.randint(int(w * 0.2), int(w * 0.8))
+            y = random.randint(int(h * 0.2), int(h * 0.7))
+            await page.mouse.move(x, y, steps=random.randint(5, 15))
+            await page.wait_for_timeout(random.randint(80, 250))
+    except Exception:
+        pass
+
+
+async def warm_up_session(page) -> None:
+    """Kunjungi homepage Shopee dulu agar mendapat cookies yang lebih natural."""
+    try:
+        await page.goto(
+            "https://shopee.co.id",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        await page.wait_for_timeout(random.randint(1500, 3000))
+        # Scroll sedikit seperti manusia membaca
+        await page.evaluate(f"window.scrollBy(0, {random.randint(100, 400)})")
+        await page.wait_for_timeout(random.randint(800, 1500))
+    except Exception:
+        pass  # Tidak fatal jika gagal, lanjut ke login page
 
 
 def normalize_phone(raw: str) -> str:
@@ -332,6 +387,10 @@ async def check_phone_async(phone_number: str) -> dict:
         page.on("response", handle_response)
 
         try:
+            # ---- Langkah 0: Warm-up session via homepage (lebih natural) ----
+            log.info(f"[{display_number}] Warm-up session via homepage...")
+            await warm_up_session(page)
+
             # ---- Langkah 1: Buka login page untuk setup session/cookies ----
             log.info(f"[{display_number}] Navigasi ke login page...")
             try:
@@ -344,7 +403,8 @@ async def check_phone_async(phone_number: str) -> dict:
                 log.error(f"[{display_number}] Gagal buka login page: {e}")
                 return {"status": "error", "message": "Tidak dapat terhubung ke Shopee", "phone": display_number}
 
-            await page.wait_for_timeout(random.randint(2500, 4000))
+            await random_mouse_move(page)
+            await page.wait_for_timeout(random.randint(2000, 3500))
 
             # ---- Langkah 2: Navigasi ke reset page via JS + fallback scenario=3 ----
             phone_input = None
@@ -402,6 +462,7 @@ async def check_phone_async(phone_number: str) -> dict:
                 }
 
             await page.wait_for_timeout(random.randint(700, 1200))
+            await random_mouse_move(page)
 
             # ---- Langkah 4: Nonaktifkan modal overlay (#modal) ----
             # Modal world-map memblokir klik — cukup disable pointer events, jangan dihapus
@@ -420,12 +481,26 @@ async def check_phone_async(phone_number: str) -> dict:
                     "phone": display_number,
                 }
 
-            # fill() memicu React state update dan phone formatter Shopee
-            await phone_input.fill(display_number)
-            await page.wait_for_timeout(random.randint(800, 1300))
+            # Gerak mouse ke area input lalu ketik seperti manusia
+            await random_mouse_move(page)
+            await page.wait_for_timeout(random.randint(300, 600))
+
+            # Coba human_type dulu; jika value tetap kosong fallback ke fill()
+            await human_type(page, phone_input, display_number)
+            await page.wait_for_timeout(random.randint(600, 1000))
 
             filled_val = await page.evaluate("el => el.value", phone_input)
-            log.info(f"[{display_number}] Input value setelah fill: '{filled_val}'")
+            log.info(f"[{display_number}] Input value setelah type: '{filled_val}'")
+
+            if not filled_val:
+                # Fallback: clear + fill() (React synthetic event)
+                log.warning(f"[{display_number}] human_type kosong, fallback ke fill()")
+                await phone_input.fill("")
+                await page.wait_for_timeout(200)
+                await phone_input.fill(display_number)
+                await page.wait_for_timeout(random.randint(600, 900))
+                filled_val = await page.evaluate("el => el.value", phone_input)
+                log.info(f"[{display_number}] Input value setelah fill fallback: '{filled_val}'")
 
             if not filled_val:
                 return {
@@ -537,25 +612,62 @@ async def root():
 @app.get("/check")
 async def check(phone: str = Query(..., description="Nomor HP, contoh: 6281234567890 atau 0812xxxxxxx")):
     start = time.time()
-    try:
-        result = await asyncio.wait_for(check_phone_async(phone), timeout=75)
-    except asyncio.TimeoutError:
-        display = "62" + normalize_phone(phone)
-        result = {
-            "status": "timeout",
-            "message": "Permintaan melebihi batas waktu (75 detik), coba lagi",
-            "phone": display,
-        }
+    display = "62" + normalize_phone(phone)
+    result = None
+
+    for attempt in range(MAX_RETRIES + 1):
+        attempt_start = time.time()
+        log.info(f"[{display}] === Percobaan {attempt + 1}/{MAX_RETRIES + 1} ===")
+
+        try:
+            # Timeout per-percobaan: 75 detik
+            result = await asyncio.wait_for(check_phone_async(phone), timeout=75)
+        except asyncio.TimeoutError:
+            result = {
+                "status": "timeout",
+                "message": "Waktu habis saat menunggu respons Shopee",
+                "phone": display,
+            }
+
+        status = result.get("status", "error")
+        log.info(f"[{display}] Percobaan {attempt + 1} selesai: status={status} ({round((time.time()-attempt_start)*1000)}ms)")
+
+        # Sukses → berhenti langsung
+        if status in ("registered", "not_registered"):
+            result["attempt"] = attempt + 1
+            break
+
+        # Validation error (format nomor salah) → tidak perlu retry
+        msg = result.get("message", "")
+        if status == "error" and any(k in msg for k in ("harus berupa angka", "Format nomor tidak valid")):
+            result["attempt"] = attempt + 1
+            break
+
+        # Masih ada sisa percobaan → tunggu lalu coba lagi
+        if attempt < MAX_RETRIES:
+            wait_sec = random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX)
+            log.info(f"[{display}] Gagal (status={status}), menunggu {wait_sec:.1f}s sebelum retry...")
+            await asyncio.sleep(wait_sec)
+        else:
+            # Semua percobaan habis → ubah pesan ke user-friendly
+            log.warning(f"[{display}] Semua {MAX_RETRIES + 1} percobaan gagal, status akhir: {status}")
+            result["status"] = "error"
+            result["message"] = "Server error, silahkan hubungi admin"
+            result["original_status"] = status
+            result["attempt"] = attempt + 1
+
     result["elapsed_ms"] = round((time.time() - start) * 1000)
-    return JSONResponse(content=result)
+    http_status = 200 if result.get("status") in ("registered", "not_registered") else 500
+    return JSONResponse(content=result, status_code=http_status)
 
 
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
-        "version": "5.0.0",
+        "version": "5.1.0",
         "pool_size": POOL_SIZE,
+        "max_retries": MAX_RETRIES,
     }
 
 
