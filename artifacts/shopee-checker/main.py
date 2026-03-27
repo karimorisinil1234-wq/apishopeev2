@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Shopee Phone Checker API - v5.0
+Shopee Phone Checker API - v5.1
 Pendekatan:
 - Buka login page dulu (buka session), lalu navigasi ke reset page via JS
 - Nonaktifkan modal overlay (#modal) agar tidak memblokir klik
 - Gunakan fill() + press("Enter") untuk kirim form
 - Intercept respons JSON dari /api/v4/account/basic/check_account_exist
 - User-Agent Windows/Mac Chrome yang nyata (bukan HeadlessChrome)
+- Fallback ke scenario=3 jika scenario=7 gagal memunculkan input
+- Multi-selector retry: atribut stabil (name, type, maxlength) + XPath
 """
 
 import asyncio
@@ -153,6 +155,45 @@ app = FastAPI(
 # ========================
 # UTILITIES
 # ========================
+
+# Selector stabil berdasarkan atribut yang jarang berubah (name, type, maxlength)
+PHONE_INPUT_SELECTORS = [
+    "input[name='phoneOrEmail']",
+    "input[name='loginKey']",
+    "input[type='tel']",
+    "input[maxlength='128'][type='text']",
+    "input[maxlength='128'][autocomplete='off']",
+]
+
+# XPath fallback jika CSS selector tidak ditemukan
+PHONE_INPUT_XPATH = [
+    "xpath=//input[@name='phoneOrEmail']",
+    "xpath=//input[@name='loginKey']",
+    "xpath=//input[@type='tel' and not(@readonly) and not(@disabled)]",
+    "xpath=//input[@maxlength='128' and not(@readonly) and not(@disabled)]",
+    "xpath=//input[@type='text' and not(@readonly) and not(@disabled)]",
+]
+
+# URL reset page yang akan dicoba berurutan (scenario=7 lalu fallback ke scenario=3)
+RESET_URLS = [
+    "https://shopee.co.id/buyer/reset?scenario=7",
+    "https://shopee.co.id/buyer/reset?scenario=3",
+]
+
+POPUP_SELECTORS = [
+    "xpath=//button[contains(.,'Bahasa Indonesia')]",
+    "xpath=//li[contains(.,'Bahasa Indonesia')]",
+    "xpath=//button[contains(.,'Terima')]",
+    "xpath=//button[contains(.,'Accept')]",
+    "xpath=//button[@id='onetrust-accept-btn-handler']",
+    "xpath=//button[contains(.,'Lanjutkan di Browser')]",
+    "xpath=//button[contains(.,'Continue in Browser')]",
+    "[aria-label='close']",
+    "[aria-label='Close']",
+    ".shopee-popup--close-btn",
+]
+
+
 def normalize_phone(raw: str) -> str:
     phone = raw.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace("+", "")
     if phone.startswith("62") and len(phone) > 10:
@@ -177,6 +218,67 @@ async def debug_save(page, label: str):
             f.write(body_text[:3000])
     except Exception:
         pass
+
+
+async def dismiss_popups(page) -> None:
+    """Coba dismiss popup/banner umum yang mungkin muncul."""
+    for sel in POPUP_SELECTORS:
+        try:
+            btn = await page.query_selector(sel)
+            if btn and await btn.is_visible():
+                await btn.click()
+                await page.wait_for_timeout(400)
+        except Exception:
+            continue
+
+
+async def find_phone_input(page):
+    """
+    Cari input dengan multi-selector (atribut stabil + XPath fallback).
+    Mengembalikan elemen pertama yang ditemukan, atau None.
+    """
+    for sel in PHONE_INPUT_SELECTORS:
+        try:
+            el = await page.query_selector(sel)
+            if el:
+                return el
+        except Exception:
+            continue
+    for sel in PHONE_INPUT_XPATH:
+        try:
+            el = await page.query_selector(sel)
+            if el:
+                return el
+        except Exception:
+            continue
+    return None
+
+
+async def wait_for_phone_input(page, timeout_ms: int = 20000):
+    """
+    Tunggu sampai input muncul via JS condition (efficient), lalu kembalikan elemen.
+    """
+    js_cond = """
+        () => {
+            const selectors = [
+                "input[name='phoneOrEmail']",
+                "input[name='loginKey']",
+                "input[type='tel']",
+                "input[maxlength='128'][type='text']",
+                "input[maxlength='128'][autocomplete='off']",
+                "input[type='text']:not([readonly]):not([disabled])"
+            ];
+            for (const s of selectors) {
+                try { if (document.querySelector(s)) return true; } catch(e) {}
+            }
+            return false;
+        }
+    """
+    try:
+        await page.wait_for_function(js_cond, timeout=timeout_ms)
+    except Exception:
+        return None
+    return await find_phone_input(page)
 
 
 # ========================
@@ -244,26 +346,62 @@ async def check_phone_async(phone_number: str) -> dict:
 
             await page.wait_for_timeout(random.randint(2500, 4000))
 
-            # ---- Langkah 2: Navigasi ke reset page via JS (menghindari bot detection) ----
-            log.info(f"[{display_number}] Navigasi ke reset page...")
-            await page.evaluate("window.location.href = 'https://shopee.co.id/buyer/reset?scenario=7'")
+            # ---- Langkah 2: Navigasi ke reset page via JS + fallback scenario=3 ----
+            phone_input = None
+            used_reset_url = None
 
-            # ---- Langkah 3: Tunggu input muncul ----
-            try:
-                await page.wait_for_function(
-                    "() => document.querySelector(\"input[name='phoneOrEmail']\") !== null",
-                    timeout=20000,
-                )
-            except Exception:
-                log.error(f"[{display_number}] Input tidak muncul di reset page")
-                await debug_save(page, "input_not_found")
+            for reset_url in RESET_URLS:
+                log.info(f"[{display_number}] Mencoba navigasi ke {reset_url}...")
+                await page.evaluate(f"window.location.href = '{reset_url}'")
+
+                # Langkah 3: Tunggu input muncul (multi-selector via JS condition)
+                phone_input = await wait_for_phone_input(page, timeout_ms=20000)
+
+                if phone_input:
+                    used_reset_url = reset_url
+                    log.info(f"[{display_number}] Input ditemukan di {reset_url}")
+                    break
+
+                # Input tidak ditemukan — dismiss popup lalu coba scroll + scan ulang
+                log.warning(f"[{display_number}] Input tidak ditemukan di {reset_url}, mencoba dismiss popup...")
+                await dismiss_popups(page)
+                await page.wait_for_timeout(800)
+                try:
+                    await page.evaluate("window.scrollTo(0, 200)")
+                except Exception:
+                    pass
+                await page.wait_for_timeout(500)
+                phone_input = await find_phone_input(page)
+                if phone_input:
+                    used_reset_url = reset_url
+                    log.info(f"[{display_number}] Input ditemukan setelah scroll di {reset_url}")
+                    break
+
+                # Sekali reload — fallback terakhir sebelum ganti URL
+                log.warning(f"[{display_number}] Mencoba reload di {reset_url}...")
+                try:
+                    await page.reload(wait_until="domcontentloaded", timeout=20000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(1200)
+                phone_input = await find_phone_input(page)
+                if phone_input:
+                    used_reset_url = reset_url
+                    log.info(f"[{display_number}] Input ditemukan setelah reload di {reset_url}")
+                    break
+
+                log.warning(f"[{display_number}] Gagal di {reset_url}, coba URL berikutnya...")
+                await debug_save(page, f"input_not_found_{reset_url.split('=')[-1]}")
+
+            if not phone_input:
+                await debug_save(page, "input_not_found_all")
                 return {
                     "status": "error",
-                    "message": "Form input tidak ditemukan di halaman reset",
+                    "message": "Form input tidak ditemukan setelah mencoba semua URL (scenario=7 dan scenario=3)",
                     "phone": display_number,
                 }
 
-            await page.wait_for_timeout(random.randint(1000, 1800))
+            await page.wait_for_timeout(random.randint(700, 1200))
 
             # ---- Langkah 4: Nonaktifkan modal overlay (#modal) ----
             # Modal world-map memblokir klik — cukup disable pointer events, jangan dihapus
@@ -273,11 +411,12 @@ async def check_phone_async(phone_number: str) -> dict:
             await page.wait_for_timeout(300)
 
             # ---- Langkah 5: Isi nomor HP ----
-            phone_input = await page.query_selector("input[name='phoneOrEmail']")
+            # Refresh referensi elemen setelah dismiss popup / scroll
+            phone_input = await find_phone_input(page)
             if not phone_input:
                 return {
                     "status": "error",
-                    "message": "Elemen input tidak ditemukan setelah DOM ready",
+                    "message": "Elemen input hilang setelah dismiss popup",
                     "phone": display_number,
                 }
 

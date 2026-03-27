@@ -7,4 +7,9 @@ PORT="${PORT:-5000}"
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(which chromium)"
 export PLAYWRIGHT_BROWSERS_PATH="0"
 
+cd "$(dirname "$0")"
+
+# Install/upgrade Python dependencies from requirements.txt
+pip install -q -r requirements.txt
+
 exec python3 -m uvicorn main:app --host 0.0.0.0 --port "$PORT" --workers 1
