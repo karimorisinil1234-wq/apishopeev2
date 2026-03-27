@@ -190,10 +190,10 @@ PHONE_INPUT_XPATH = [
     "xpath=//input[@type='text' and not(@readonly) and not(@disabled)]",
 ]
 
-# URL reset page yang akan dicoba berurutan (scenario=7 lalu fallback ke scenario=3)
+# URL reset page — scenario=7 dulu, fallback ke scenario=3
 RESET_URLS = [
-    "https://shopee.co.id/buyer/reset",
-    "https://shopee.co.id/buyer/reset",
+    "https://shopee.co.id/buyer/reset?scenario=7",
+    "https://shopee.co.id/buyer/reset?scenario=3",
 ]
 
 POPUP_SELECTORS = [
@@ -208,36 +208,6 @@ POPUP_SELECTORS = [
     "[aria-label='Close']",
     ".shopee-popup--close-btn",
 ]
-
-
-async def random_mouse_move(page) -> None:
-    """Gerak mouse acak di area tengah halaman untuk simulasi perilaku manusia."""
-    try:
-        vp = page.viewport_size or {"width": 1366, "height": 768}
-        w, h = vp["width"], vp["height"]
-        for _ in range(random.randint(2, 4)):
-            x = random.randint(int(w * 0.2), int(w * 0.8))
-            y = random.randint(int(h * 0.2), int(h * 0.7))
-            await page.mouse.move(x, y, steps=random.randint(5, 15))
-            await page.wait_for_timeout(random.randint(80, 250))
-    except Exception:
-        pass
-
-
-async def warm_up_session(page) -> None:
-    """Kunjungi homepage Shopee dulu agar mendapat cookies yang lebih natural."""
-    try:
-        await page.goto(
-            "https://shopee.co.id",
-            wait_until="domcontentloaded",
-            timeout=20000,
-        )
-        await page.wait_for_timeout(random.randint(1500, 3000))
-        # Scroll sedikit seperti manusia membaca
-        await page.evaluate(f"window.scrollBy(0, {random.randint(100, 400)})")
-        await page.wait_for_timeout(random.randint(800, 1500))
-    except Exception:
-        pass  # Tidak fatal jika gagal, lanjut ke login page
 
 
 def normalize_phone(raw: str) -> str:
@@ -378,70 +348,36 @@ async def check_phone_async(phone_number: str) -> dict:
         page.on("response", handle_response)
 
         try:
-            # ---- Langkah 0: Warm-up session via homepage (lebih natural) ----
-            log.info(f"[{display_number}] Warm-up session via homepage...")
-            await warm_up_session(page)
-
-            # ---- Langkah 1: Buka login page untuk setup session/cookies ----
-            log.info(f"[{display_number}] Navigasi ke login page...")
-            try:
-                await page.goto(
-                    "https://shopee.co.id/buyer/login",
-                    wait_until="domcontentloaded",
-                    timeout=30000,
-                )
-            except Exception as e:
-                log.error(f"[{display_number}] Gagal buka login page: {e}")
-                return {"status": "error", "message": "Tidak dapat terhubung ke Shopee", "phone": display_number}
-
-            await random_mouse_move(page)
-            await page.wait_for_timeout(random.randint(2000, 3500))
-
-            # ---- Langkah 2: Navigasi ke reset page via JS + fallback scenario=3 ----
+            # ---- Langkah 1: Langsung buka reset URL ----
             phone_input = None
             used_reset_url = None
 
             for reset_url in RESET_URLS:
-                log.info(f"[{display_number}] Mencoba navigasi ke {reset_url}...")
-                await page.evaluate(f"window.location.href = '{reset_url}'")
+                log.info(f"[{display_number}] Buka langsung {reset_url}...")
+                try:
+                    await page.goto(reset_url, wait_until="domcontentloaded", timeout=25000)
+                except Exception as e:
+                    log.warning(f"[{display_number}] Gagal goto {reset_url}: {e}")
+                    continue
 
-                # Langkah 3: Tunggu input muncul (multi-selector via JS condition)
-                phone_input = await wait_for_phone_input(page, timeout_ms=20000)
+                # Tunggu input muncul
+                phone_input = await wait_for_phone_input(page, timeout_ms=12000)
 
                 if phone_input:
                     used_reset_url = reset_url
                     log.info(f"[{display_number}] Input ditemukan di {reset_url}")
                     break
 
-                # Input tidak ditemukan — dismiss popup lalu coba scroll + scan ulang
-                log.warning(f"[{display_number}] Input tidak ditemukan di {reset_url}, mencoba dismiss popup...")
+                # Input belum muncul — dismiss popup sekali lalu cek lagi
                 await dismiss_popups(page)
-                await page.wait_for_timeout(800)
-                try:
-                    await page.evaluate("window.scrollTo(0, 200)")
-                except Exception:
-                    pass
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(600)
                 phone_input = await find_phone_input(page)
                 if phone_input:
                     used_reset_url = reset_url
-                    log.info(f"[{display_number}] Input ditemukan setelah scroll di {reset_url}")
+                    log.info(f"[{display_number}] Input ditemukan setelah dismiss popup di {reset_url}")
                     break
 
-                # Sekali reload — fallback terakhir sebelum ganti URL
-                log.warning(f"[{display_number}] Mencoba reload di {reset_url}...")
-                try:
-                    await page.reload(wait_until="domcontentloaded", timeout=20000)
-                except Exception:
-                    pass
-                await page.wait_for_timeout(1200)
-                phone_input = await find_phone_input(page)
-                if phone_input:
-                    used_reset_url = reset_url
-                    log.info(f"[{display_number}] Input ditemukan setelah reload di {reset_url}")
-                    break
-
-                log.warning(f"[{display_number}] Gagal di {reset_url}, coba URL berikutnya...")
+                log.warning(f"[{display_number}] Input tidak ditemukan di {reset_url}, coba URL berikutnya...")
                 await debug_save(page, f"input_not_found_{reset_url.split('=')[-1]}")
 
             if not phone_input:
@@ -452,15 +388,10 @@ async def check_phone_async(phone_number: str) -> dict:
                     "phone": display_number,
                 }
 
-            await page.wait_for_timeout(random.randint(700, 1200))
-            await random_mouse_move(page)
-
-            # ---- Langkah 4: Nonaktifkan modal overlay (#modal) ----
-            # Modal world-map memblokir klik — cukup disable pointer events, jangan dihapus
+            # Nonaktifkan modal overlay (#modal) agar tidak memblokir input
             await page.evaluate(
                 "document.querySelectorAll('#modal *').forEach(el => el.style.pointerEvents = 'none')"
             )
-            await page.wait_for_timeout(300)
 
             # ---- Langkah 5: Isi nomor HP ----
             # Refresh referensi elemen setelah dismiss popup / scroll
@@ -472,13 +403,9 @@ async def check_phone_async(phone_number: str) -> dict:
                     "phone": display_number,
                 }
 
-            # Gerak mouse ke area input
-            await random_mouse_move(page)
-            await page.wait_for_timeout(random.randint(200, 400))
-
             # fill() memicu React state update dan phone formatter Shopee
             await phone_input.fill(display_number)
-            await page.wait_for_timeout(random.randint(600, 1000))
+            await page.wait_for_timeout(500)
 
             filled_val = await page.evaluate("el => el.value", phone_input)
             log.info(f"[{display_number}] Input value setelah fill: '{filled_val}'")
