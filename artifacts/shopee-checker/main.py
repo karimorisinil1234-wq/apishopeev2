@@ -210,15 +210,6 @@ POPUP_SELECTORS = [
 ]
 
 
-async def human_type(page, element, text: str) -> None:
-    """Ketik teks karakter per karakter seperti manusia (delay acak antar karakter)."""
-    await element.click()
-    await page.wait_for_timeout(random.randint(100, 300))
-    for char in text:
-        await element.type(char, delay=random.randint(60, 180))
-    await page.wait_for_timeout(random.randint(200, 500))
-
-
 async def random_mouse_move(page) -> None:
     """Gerak mouse acak di area tengah halaman untuk simulasi perilaku manusia."""
     try:
@@ -481,26 +472,16 @@ async def check_phone_async(phone_number: str) -> dict:
                     "phone": display_number,
                 }
 
-            # Gerak mouse ke area input lalu ketik seperti manusia
+            # Gerak mouse ke area input
             await random_mouse_move(page)
-            await page.wait_for_timeout(random.randint(300, 600))
+            await page.wait_for_timeout(random.randint(200, 400))
 
-            # Coba human_type dulu; jika value tetap kosong fallback ke fill()
-            await human_type(page, phone_input, display_number)
+            # fill() memicu React state update dan phone formatter Shopee
+            await phone_input.fill(display_number)
             await page.wait_for_timeout(random.randint(600, 1000))
 
             filled_val = await page.evaluate("el => el.value", phone_input)
-            log.info(f"[{display_number}] Input value setelah type: '{filled_val}'")
-
-            if not filled_val:
-                # Fallback: clear + fill() (React synthetic event)
-                log.warning(f"[{display_number}] human_type kosong, fallback ke fill()")
-                await phone_input.fill("")
-                await page.wait_for_timeout(200)
-                await phone_input.fill(display_number)
-                await page.wait_for_timeout(random.randint(600, 900))
-                filled_val = await page.evaluate("el => el.value", phone_input)
-                log.info(f"[{display_number}] Input value setelah fill fallback: '{filled_val}'")
+            log.info(f"[{display_number}] Input value setelah fill: '{filled_val}'")
 
             if not filled_val:
                 return {
