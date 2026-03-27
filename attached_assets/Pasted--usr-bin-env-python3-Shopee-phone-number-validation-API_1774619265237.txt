@@ -1,0 +1,731 @@
+#!/usr/bin/env python3
+"""
+Shopee phone-number validation API
+Deployable on Railway
+"""
+
+import os
+import time
+import random
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+import uvicorn
+
+app = FastAPI(
+    title="Shopee Phone Checker API",
+    description="Validasi nomor HP terdaftar di Shopee",
+    version="3.0.0"
+)
+
+CHROME_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-infobars",
+    "--disable-extensions",
+]
+
+# ==========================
+# USER AGENT POOL (100+)
+# ==========================
+
+def build_ua_pool():
+    pool = []
+
+    desktop_chrome_windows = [
+        ("146.0.0.0", {"width": 1366, "height": 768}),
+        ("145.0.0.0", {"width": 1536, "height": 864}),
+        ("144.0.0.0", {"width": 1920, "height": 1080}),
+        ("143.0.0.0", {"width": 1600, "height": 900}),
+        ("142.0.0.0", {"width": 1440, "height": 900}),
+        ("141.0.0.0", {"width": 1366, "height": 768}),
+        ("140.0.0.0", {"width": 1280, "height": 720}),
+        ("139.0.0.0", {"width": 1536, "height": 864}),
+        ("138.0.0.0", {"width": 1920, "height": 1080}),
+        ("137.0.0.0", {"width": 1600, "height": 900}),
+        ("136.0.0.0", {"width": 1366, "height": 768}),
+        ("135.0.0.0", {"width": 1440, "height": 900}),
+        ("134.0.0.0", {"width": 1536, "height": 864}),
+        ("133.0.0.0", {"width": 1920, "height": 1080}),
+        ("132.0.0.0", {"width": 1366, "height": 768}),
+        ("131.0.0.0", {"width": 1600, "height": 900}),
+        ("130.0.0.0", {"width": 1440, "height": 900}),
+        ("129.0.0.0", {"width": 1366, "height": 768}),
+        ("128.0.0.0", {"width": 1536, "height": 864}),
+        ("127.0.0.0", {"width": 1920, "height": 1080}),
+        ("126.0.0.0", {"width": 1366, "height": 768}),
+        ("125.0.0.0", {"width": 1440, "height": 900}),
+        ("124.0.0.0", {"width": 1600, "height": 900}),
+        ("123.0.0.0", {"width": 1536, "height": 864}),
+        ("122.0.0.0", {"width": 1366, "height": 768}),
+        ("121.0.0.0", {"width": 1920, "height": 1080}),
+        ("120.0.0.0", {"width": 1440, "height": 900}),
+        ("119.0.0.0", {"width": 1366, "height": 768}),
+        ("118.0.0.0", {"width": 1536, "height": 864}),
+        ("117.0.0.0", {"width": 1600, "height": 900}),
+        ("116.0.0.0", {"width": 1366, "height": 768}),
+        ("115.0.0.0", {"width": 1440, "height": 900}),
+        ("114.0.0.0", {"width": 1536, "height": 864}),
+        ("113.0.0.0", {"width": 1920, "height": 1080}),
+        ("112.0.0.0", {"width": 1366, "height": 768}),
+        ("111.0.0.0", {"width": 1600, "height": 900}),
+        ("110.0.0.0", {"width": 1440, "height": 900}),
+        ("109.0.0.0", {"width": 1366, "height": 768}),
+        ("108.0.0.0", {"width": 1536, "height": 864}),
+        ("107.0.0.0", {"width": 1920, "height": 1080}),
+        ("106.0.0.0", {"width": 1366, "height": 768}),
+        ("105.0.0.0", {"width": 1600, "height": 900}),
+        ("104.0.0.0", {"width": 1440, "height": 900}),
+        ("103.0.0.0", {"width": 1366, "height": 768}),
+        ("102.0.0.0", {"width": 1536, "height": 864}),
+        ("101.0.0.0", {"width": 1920, "height": 1080}),
+        ("100.0.0.0", {"width": 1366, "height": 768}),
+        ("99.0.0.0", {"width": 1440, "height": 900}),
+        ("98.0.0.0", {"width": 1600, "height": 900}),
+        ("97.0.0.0", {"width": 1366, "height": 768}),
+        ("96.0.0.0", {"width": 1536, "height": 864}),
+        ("95.0.0.0", {"width": 1920, "height": 1080}),
+        ("94.0.0.0", {"width": 1366, "height": 768}),
+        ("93.0.0.0", {"width": 1440, "height": 900}),
+        ("92.0.0.0", {"width": 1600, "height": 900}),
+        ("91.0.0.0", {"width": 1366, "height": 768}),
+        ("90.0.0.0", {"width": 1536, "height": 864}),
+    ]
+
+    desktop_chrome_mac = [
+        ("146.0.0.0", {"width": 1440, "height": 900}),
+        ("145.0.0.0", {"width": 1512, "height": 982}),
+        ("144.0.0.0", {"width": 1680, "height": 1050}),
+        ("143.0.0.0", {"width": 1440, "height": 900}),
+        ("142.0.0.0", {"width": 1512, "height": 982}),
+        ("141.0.0.0", {"width": 1680, "height": 1050}),
+        ("140.0.0.0", {"width": 1440, "height": 900}),
+        ("139.0.0.0", {"width": 1512, "height": 982}),
+        ("138.0.0.0", {"width": 1680, "height": 1050}),
+        ("137.0.0.0", {"width": 1440, "height": 900}),
+        ("136.0.0.0", {"width": 1512, "height": 982}),
+        ("135.0.0.0", {"width": 1680, "height": 1050}),
+    ]
+
+    # mobile_chrome_android, safari, firefox tetap dibuat untuk future use,
+    # tapi nanti pick_profile() akan hanya memilih desktop_xxx agar selalu desktop.
+    mobile_chrome_android = [
+        ("146.0.0.0", {"width": 412, "height": 915}),
+        ("145.0.0.0", {"width": 393, "height": 873}),
+        ("144.0.0.0", {"width": 360, "height": 800}),
+        ("143.0.0.0", {"width": 384, "height": 854}),
+        ("142.0.0.0", {"width": 412, "height": 915}),
+        ("141.0.0.0", {"width": 393, "height": 873}),
+        ("140.0.0.0", {"width": 360, "height": 800}),
+        ("139.0.0.0", {"width": 384, "height": 854}),
+        ("138.0.0.0", {"width": 412, "height": 915}),
+        ("137.0.0.0", {"width": 393, "height": 873}),
+        ("136.0.0.0", {"width": 360, "height": 800}),
+        ("135.0.0.0", {"width": 384, "height": 854}),
+        ("134.0.0.0", {"width": 412, "height": 915}),
+        ("133.0.0.0", {"width": 393, "height": 873}),
+        ("132.0.0.0", {"width": 360, "height": 800}),
+        ("131.0.0.0", {"width": 384, "height": 854}),
+        ("130.0.0.0", {"width": 412, "height": 915}),
+        ("129.0.0.0", {"width": 393, "height": 873}),
+        ("128.0.0.0", {"width": 360, "height": 800}),
+        ("127.0.0.0", {"width": 384, "height": 854}),
+    ]
+
+    safari_mac = [
+        ("18.5", {"width": 1440, "height": 900}),
+        ("18.4", {"width": 1512, "height": 982}),
+        ("18.3", {"width": 1680, "height": 1050}),
+        ("18.2", {"width": 1440, "height": 900}),
+        ("18.1", {"width": 1512, "height": 982}),
+        ("18.0", {"width": 1680, "height": 1050}),
+        ("17.6", {"width": 1440, "height": 900}),
+        ("17.5", {"width": 1512, "height": 982}),
+    ]
+
+    safari_ios = [
+        ("18.5", {"width": 390, "height": 844}),
+        ("18.4", {"width": 393, "height": 852}),
+        ("18.3", {"width": 430, "height": 932}),
+        ("18.2", {"width": 390, "height": 844}),
+        ("18.1", {"width": 393, "height": 852}),
+        ("18.0", {"width": 430, "height": 932}),
+    ]
+
+    firefox_windows = [
+        ("145.0", {"width": 1366, "height": 768}),
+        ("144.0", {"width": 1536, "height": 864}),
+        ("143.0", {"width": 1920, "height": 1080}),
+        ("142.0", {"width": 1600, "height": 900}),
+        ("141.0", {"width": 1440, "height": 900}),
+        ("140.0", {"width": 1366, "height": 768}),
+    ]
+
+    firefox_linux = [
+        ("145.0", {"width": 1366, "height": 768}),
+        ("144.0", {"width": 1600, "height": 900}),
+        ("143.0", {"width": 1920, "height": 1080}),
+        ("142.0", {"width": 1366, "height": 768}),
+        ("141.0", {"width": 1440, "height": 900}),
+        ("140.0", {"width": 1600, "height": 900}),
+    ]
+
+    for version, viewport in desktop_chrome_windows:
+        pool.append({
+            "family": "desktop_chrome",
+            "ua": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36",
+            "platform": "Windows",
+            "mobile": False,
+            "viewport": viewport,
+        })
+
+    for version, viewport in desktop_chrome_mac:
+        pool.append({
+            "family": "desktop_chrome",
+            "ua": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36",
+            "platform": "macOS",
+            "mobile": False,
+            "viewport": viewport,
+        })
+
+    for version, viewport in mobile_chrome_android:
+        pool.append({
+            "family": "mobile_chrome",
+            "ua": f"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Mobile Safari/537.36",
+            "platform": "Android",
+            "mobile": True,
+            "viewport": viewport,
+        })
+
+    for version, viewport in safari_mac:
+        pool.append({
+            "family": "safari",
+            "ua": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15",
+            "platform": "macOS",
+            "mobile": False,
+            "viewport": viewport,
+        })
+
+    for version, viewport in safari_ios:
+        pool.append({
+            "family": "safari",
+            "ua": f"Mozilla/5.0 (iPhone; CPU iPhone OS {version.replace('.', '_')} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Mobile/15E148 Safari/604.1",
+            "platform": "iOS",
+            "mobile": True,
+            "viewport": viewport,
+        })
+
+    for version, viewport in firefox_windows:
+        pool.append({
+            "family": "firefox",
+            "ua": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{version}) Gecko/20100101 Firefox/{version}",
+            "platform": "Windows",
+            "mobile": False,
+            "viewport": viewport,
+        })
+
+    for version, viewport in firefox_linux:
+        pool.append({
+            "family": "firefox",
+            "ua": f"Mozilla/5.0 (X11; Linux x86_64; rv:{version}) Gecko/20100101 Firefox/{version}",
+            "platform": "Linux",
+            "mobile": False,
+            "viewport": viewport,
+        })
+
+    return pool
+
+
+UA_PROFILES = build_ua_pool()
+
+UA_GROUPS = {
+    "desktop_chrome": [x for x in UA_PROFILES if x["family"] == "desktop_chrome"],
+    "mobile_chrome": [x for x in UA_PROFILES if x["family"] == "mobile_chrome"],
+    "safari": [x for x in UA_PROFILES if x["family"] == "safari"],
+    "firefox": [x for x in UA_PROFILES if x["family"] == "firefox"],
+}
+
+UA_WEIGHTS = {
+    "desktop_chrome": 70,
+    "mobile_chrome": 15,
+    "safari": 10,
+    "firefox": 5,
+}
+
+
+def pick_profile():
+    """
+    Versi ini DIPAKSA hanya pakai desktop UA:
+    - 70% desktop Chrome (Windows/Mac)
+    - 30% desktop Firefox/Safari
+    """
+    desktop_families = ["desktop_chrome", "firefox", "safari"]
+    desktop_weights = [70, 20, 10]  # Chrome domian, sisanya desktop lain
+
+    family = random.choices(
+        population=desktop_families,
+        weights=desktop_weights,
+        k=1
+    )[0]
+
+    return random.choice(UA_GROUPS[family])
+
+
+# ==========================
+# DETECTION / HELPERS
+# ==========================
+
+NOT_REGISTERED_KEYWORDS = [
+    "silakan gunakan no. handphone atau email berbeda",
+    "belum terdaftar",
+    "tidak terdaftar",
+    "tidak ditemukan",
+    "not registered",
+    "nomor ini tidak",
+    "akun tidak ditemukan",
+    "gunakan no. handphone",
+]
+
+REGISTERED_KEYWORDS = [
+    "kode verifikasi",
+    "kode otp",
+    "verification code",
+    "kami telah mengirim",
+    "masukkan kode",
+    "enter the code",
+    "resend code",
+    "kirim ulang",
+]
+
+BLOCKED_KEYWORDS = [
+    "halaman tidak tersedia",
+    "maaf, telah terjadi kesalahan",
+    "verify/traffic",
+    "traffic error",
+]
+
+
+def apply_stealth(page):
+    page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['id-ID', 'id', 'en-US', 'en'] });
+
+        window.chrome = {
+            runtime: {},
+            loadTimes: function(){},
+            csi: function(){},
+            app: {}
+        };
+
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications'
+                ? Promise.resolve({ state: Notification.permission })
+                : originalQuery(parameters)
+        );
+
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.';
+            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+            return getParameter(parameter);
+        };
+    """)
+
+
+def build_headers(profile: dict):
+    platform = profile["platform"]
+
+    if platform == "Windows":
+        sec_platform = '"Windows"'
+    elif platform == "macOS":
+        sec_platform = '"macOS"'
+    elif platform == "Linux":
+        sec_platform = '"Linux"'
+    else:
+        sec_platform = '"Windows"'
+
+    headers = {
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    if "Chrome/" in profile["ua"]:
+        headers["sec-ch-ua"] = '"Chromium";v="146", "Google Chrome";v="146", "Not.A/Brand";v="24"'
+        headers["sec-ch-ua-mobile"] = "?0"
+        headers["sec-ch-ua-platform"] = sec_platform
+    elif "Firefox/" in profile["ua"]:
+        # Firefox tidak pakai sec-ch-ua
+        pass
+    elif "Safari/" in profile["ua"]:
+        # Safari desktop
+        pass
+
+    return headers
+
+
+def make_context(browser):
+    profile = pick_profile()
+    context = browser.new_context(
+        user_agent=profile["ua"],
+        locale="id-ID",
+        timezone_id="Asia/Jakarta",
+        viewport=profile["viewport"],
+        is_mobile=False,      # PAKSA DESKTOP
+        has_touch=False,      # PAKSA DESKTOP
+        extra_http_headers=build_headers(profile),
+    )
+    return context, profile
+
+
+def page_looks_blocked(page) -> bool:
+    try:
+        current_url = page.url.lower()
+        if "verify/traffic" in current_url:
+            return True
+
+        body_text = page.inner_text("body").lower()
+        return any(k in body_text for k in BLOCKED_KEYWORDS)
+    except Exception:
+        return False
+
+
+def debug_save(page, label: str):
+    debug_dir = "/tmp/shopee_debug"
+    os.makedirs(debug_dir, exist_ok=True)
+    ts = int(time.time())
+
+    try:
+        page.screenshot(path=f"{debug_dir}/{label}_{ts}.png", full_page=True)
+    except Exception:
+        pass
+
+    try:
+        with open(f"{debug_dir}/{label}_{ts}.txt", "w", encoding="utf-8") as f:
+            f.write(f"URL: {page.url}\n\n")
+            f.write(page.content()[:8000])
+    except Exception:
+        pass
+
+
+def dismiss_all_popups(page):
+    popup_selectors = [
+        # Bahasa
+        "xpath=//button[contains(.,'Bahasa Indonesia')]",
+        "xpath=//li[contains(.,'Bahasa Indonesia')]",
+        "text=Bahasa Indonesia",
+
+        # Cookie
+        "xpath=//button[contains(.,'Terima')]",
+        "xpath=//button[contains(.,'Accept')]",
+        "xpath=//button[contains(.,'OK')]",
+        "xpath=//button[@id='onetrust-accept-btn-handler']",
+
+        # App banner / modal
+        "xpath=//button[contains(.,'Nanti saja')]",
+        "xpath=//button[contains(.,'Tidak, terima kasih')]",
+        "xpath=//button[contains(.,'Lanjutkan di Browser')]",
+        "xpath=//button[contains(.,'Continue in Browser')]",
+        "xpath=//span[contains(.,'×')]//ancestor::button",
+        "[aria-label='close']",
+        "[aria-label='Close']",
+
+        ".shopee-popup--close-btn",
+        "[data-sqe='close']",
+        ".modal-close",
+    ]
+
+    dismissed = 0
+    for sel in popup_selectors:
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(random.randint(300, 700))
+                dismissed += 1
+        except Exception:
+            continue
+
+    return dismissed
+
+
+def find_phone_input(page):
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+
+    page.wait_for_timeout(random.randint(800, 1500))
+
+    dismiss_all_popups(page)
+    page.wait_for_timeout(random.randint(400, 800))
+    dismiss_all_popups(page)
+
+    selectors = [
+        "input[name='phoneOrEmail']",
+        "input.X0Jdtz",
+        "input[placeholder*='Telp']",
+        "input[placeholder*='Email']",
+        "input[placeholder*='No. Handphone']",
+        "input[placeholder*='handphone']",
+        "input[placeholder*='phone']",
+        "input[type='text'][maxlength='128']",
+        "input[type='text'][autocomplete='off']",
+        "xpath=//input[@type='text' and not(@readonly)]",
+    ]
+
+    for attempt in range(3):
+        for sel in selectors:
+            try:
+                el = page.wait_for_selector(sel, state="visible", timeout=5000)
+                if el and el.is_visible():
+                    return el
+            except Exception:
+                continue
+
+        if attempt < 2:
+            try:
+                page.evaluate("window.scrollTo(0, 400)")
+            except Exception:
+                pass
+            page.wait_for_timeout(random.randint(500, 1000))
+            dismiss_all_popups(page)
+
+    return None
+
+
+def normalize_phone(raw: str) -> str:
+    phone = raw.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+
+    if phone.startswith("+62"):
+        phone = phone[3:]
+    elif phone.startswith("62") and len(phone) > 10:
+        phone = phone[2:]
+    elif phone.startswith("0"):
+        phone = phone[1:]
+
+    return phone
+
+
+# ==========================
+# MAIN CHECK LOGIC
+# ==========================
+
+def check_phone(phone_number: str) -> dict:
+    raw_input = phone_number.strip()
+    local_number = normalize_phone(raw_input)
+    display_number = "62" + local_number
+
+    if not local_number.isdigit():
+        return {"status": "error", "message": "Nomor harus berupa angka", "phone": display_number}
+    if len(local_number) < 8 or len(local_number) > 13:
+        return {"status": "error", "message": "Format nomor tidak valid", "phone": display_number}
+
+    os.environ["PWDEBUG"] = "0"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=CHROME_ARGS)
+        context, profile = make_context(browser)
+        page = context.new_page()
+        apply_stealth(page)
+
+        try:
+            page.goto(
+                "https://shopee.co.id/buyer/reset?scenario=7",
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+
+            if page_looks_blocked(page):
+                debug_save(page, "blocked_initial")
+                return {
+                    "status": "blocked",
+                    "message": "Shopee mendeteksi trafik tidak wajar, coba lagi",
+                    "phone": display_number,
+                }
+
+            phone_input = find_phone_input(page)
+            if phone_input is None:
+                debug_save(page, "input_not_found")
+                return {
+                    "status": "error",
+                    "message": "Form input tidak ditemukan",
+                    "phone": display_number,
+                    "debug_url": page.url,
+                }
+
+            vp = profile["viewport"]
+            page.mouse.move(
+                random.randint(80, max(81, vp["width"] - 80)),
+                random.randint(120, max(121, vp["height"] - 120))
+            )
+            page.wait_for_timeout(random.randint(250, 600))
+
+            phone_input.click()
+            page.wait_for_timeout(random.randint(150, 350))
+            phone_input.click(click_count=3)
+            page.wait_for_timeout(random.randint(100, 250))
+
+            page.keyboard.press("Delete")
+            page.wait_for_timeout(random.randint(80, 200))
+
+            for ch in local_number:
+                page.keyboard.type(ch, delay=random.randint(45, 120))
+
+            page.wait_for_timeout(random.randint(400, 800))
+
+            try:
+                error_div = page.wait_for_selector(
+                    "xpath=//div[starts-with(@id,'authentication-input-error_')]",
+                    state="visible",
+                    timeout=3000
+                )
+                error_msg = error_div.inner_text().strip()
+                if "Nomor Telepon Tidak Sah" in error_msg or "Tidak Sah" in error_msg:
+                    return {
+                        "status": "invalid_format",
+                        "message": error_msg,
+                        "phone": display_number,
+                        "registered": False,
+                    }
+            except Exception:
+                pass
+
+            try:
+                next_btn = page.wait_for_selector(
+                    "xpath=//button[contains(.,'Berikutnya') and not(@disabled)]",
+                    state="visible",
+                    timeout=15000
+                )
+            except PWTimeout:
+                debug_save(page, "next_button_not_found")
+                return {
+                    "status": "error",
+                    "message": "Tombol Berikutnya tidak muncul",
+                    "phone": display_number,
+                }
+
+            page.wait_for_timeout(random.randint(300, 800))
+            next_btn.click()
+            page.wait_for_timeout(random.randint(1200, 2200))
+
+            if page_looks_blocked(page):
+                debug_save(page, "blocked_after_submit")
+                return {
+                    "status": "blocked",
+                    "message": "Shopee mendeteksi trafik tidak wajar setelah submit",
+                    "phone": display_number,
+                }
+
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                page.wait_for_timeout(500)
+
+                if page_looks_blocked(page):
+                    debug_save(page, "blocked_polling")
+                    return {
+                        "status": "blocked",
+                        "message": "Shopee mendeteksi trafik tidak wajar",
+                        "phone": display_number,
+                    }
+
+                try:
+                    warning_el = page.query_selector(".HyEuQL")
+                    if warning_el:
+                        warning_text = warning_el.inner_text().strip().lower()
+                        if any(k in warning_text for k in NOT_REGISTERED_KEYWORDS):
+                            return {
+                                "status": "not_registered",
+                                "message": "Nomor tidak terdaftar di Shopee",
+                                "phone": display_number,
+                                "registered": False,
+                            }
+                except Exception:
+                    pass
+
+                try:
+                    body_text = page.inner_text("body").lower()
+
+                    if any(k in body_text for k in NOT_REGISTERED_KEYWORDS):
+                        return {
+                            "status": "not_registered",
+                            "message": "Nomor tidak terdaftar di Shopee",
+                            "phone": display_number,
+                            "registered": False,
+                        }
+
+                    otp_field = page.query_selector(
+                        "input[name='otp'], "
+                        "input[type='tel'][maxlength], "
+                        "input[autocomplete='one-time-code']"
+                    )
+                    if otp_field:
+                        return {
+                            "status": "registered",
+                            "message": "Nomor terdaftar di Shopee",
+                            "phone": display_number,
+                            "registered": True,
+                        }
+
+                    if any(k in body_text for k in REGISTERED_KEYWORDS):
+                        return {
+                            "status": "registered",
+                            "message": "Nomor terdaftar di Shopee",
+                            "phone": display_number,
+                            "registered": True,
+                        }
+                except Exception:
+                    pass
+
+            debug_save(page, "status_unknown")
+            return {
+                "status": "unknown",
+                "message": "Tidak bisa menentukan status, coba lagi",
+                "phone": display_number,
+                "registered": None,
+            }
+
+        except Exception as e:
+            debug_save(page, "exception")
+            return {"status": "error", "message": str(e), "phone": display_number}
+
+        finally:
+            context.close()
+            browser.close()
+
+
+# ==========================
+# FASTAPI ROUTES
+# ==========================
+
+@app.get("/")
+def root():
+    return {
+        "name": "Shopee Phone Checker API",
+        "version": "3.0.0",
+        "usage": "GET /check?phone=6281234567890",
+        "ua_pool": len(UA_PROFILES),
+        "ua_desktop_only": True,
+    }
+
+
+@app.get("/check")
+def check(phone: str = Query(..., description="Nomor HP, contoh: 6281234567890 / 0812xxxxxxx")):
+    start = time.time()
+    result = check_phone(phone)
+    result["elapsed_ms"] = round((time.time() - start) * 1000)
+    return JSONResponse(content=result)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "ua_pool": len(UA_PROFILES)}
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("bot:app", host="0.0.0.0", port=port)
