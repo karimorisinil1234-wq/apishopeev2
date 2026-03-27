@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { createToken, listTokens, revokeToken, deleteToken } from "../lib/db";
+import { createToken, listTokens, listTokenLogs, revokeToken, deleteToken } from "../lib/db";
 
 const router = Router();
 const ADMIN_PATH = "/admin12345";
@@ -21,13 +21,20 @@ function adminLayout(content: string, title = "Admin Panel"): string {
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Inter',sans-serif;background:#f8f9fa;color:#212529;min-height:100vh}
-    .topbar{background:#ee4d2d;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:12px}
+    .topbar{background:linear-gradient(135deg,#ee4d2d,#c0392b);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(238,77,45,.3)}
     .topbar h1{font-size:18px;font-weight:700}
-    .topbar a{color:#fff;text-decoration:none;font-size:13px;margin-left:auto;opacity:.85}
-    .topbar a:hover{opacity:1}
-    .container{max-width:960px;margin:32px auto;padding:0 20px}
+    .topbar .nav{display:flex;gap:8px;margin-left:24px}
+    .topbar .nav a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;padding:6px 12px;border-radius:6px;transition:.15s}
+    .topbar .nav a:hover,.topbar .nav a.active{background:rgba(255,255,255,.2);color:#fff}
+    .topbar .logout{color:#fff;text-decoration:none;font-size:13px;margin-left:auto;opacity:.85}
+    .topbar .logout:hover{opacity:1}
+    .container{max-width:1100px;margin:32px auto;padding:0 20px}
     .card{background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:28px;margin-bottom:24px}
-    .card h2{font-size:16px;font-weight:600;margin-bottom:20px;color:#333}
+    .card h2{font-size:16px;font-weight:600;margin-bottom:20px;color:#333;display:flex;align-items:center;gap:8px}
+    .stats{display:flex;gap:16px;margin-bottom:24px}
+    .stat-card{flex:1;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:20px;text-align:center}
+    .stat-card .val{font-size:28px;font-weight:700;color:#ee4d2d}
+    .stat-card .lbl{font-size:12px;color:#6c757d;margin-top:4px}
     label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;color:#495057}
     input,select{width:100%;padding:9px 12px;border:1px solid #dee2e6;border-radius:8px;font-size:14px;font-family:inherit;outline:none;transition:.15s}
     input:focus,select:focus{border-color:#ee4d2d;box-shadow:0 0 0 3px rgba(238,77,45,.12)}
@@ -37,24 +44,32 @@ function adminLayout(content: string, title = "Admin Panel"): string {
     .btn-primary{background:#ee4d2d;color:#fff}.btn-primary:hover{background:#d63c20}
     .btn-danger{background:#dc3545;color:#fff;font-size:12px;padding:6px 12px}.btn-danger:hover{background:#b02a37}
     .btn-secondary{background:#6c757d;color:#fff;font-size:12px;padding:6px 12px}.btn-secondary:hover{background:#5a6268}
+    .btn-info{background:#0d6efd;color:#fff;font-size:12px;padding:6px 12px;text-decoration:none;display:inline-block}.btn-info:hover{background:#0b5ed7}
     .alert{padding:12px 16px;border-radius:8px;font-size:14px;margin-bottom:16px}
     .alert-success{background:#d1e7dd;color:#0f5132;border:1px solid #badbcc}
     .alert-error{background:#f8d7da;color:#842029;border:1px solid #f5c2c7}
     table{width:100%;border-collapse:collapse;font-size:13px}
-    th{text-align:left;padding:10px 12px;background:#f8f9fa;color:#6c757d;font-weight:600;border-bottom:2px solid #dee2e6}
+    th{text-align:left;padding:10px 12px;background:#f8f9fa;color:#6c757d;font-weight:600;border-bottom:2px solid #dee2e6;white-space:nowrap}
     td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
     tr:last-child td{border-bottom:none}
+    tr:hover td{background:#fafafa}
     .badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
     .badge-active{background:#d1e7dd;color:#0f5132}
     .badge-expired{background:#fff3cd;color:#664d03}
     .badge-revoked{background:#f8d7da;color:#842029}
-    .token-val{font-family:monospace;font-size:12px;max-width:200px;word-break:break-all;color:#495057}
+    .badge-success{background:#d1e7dd;color:#0f5132}
+    .badge-error{background:#f8d7da;color:#842029}
+    .token-val{font-family:monospace;font-size:11px;max-width:180px;word-break:break-all;color:#495057}
     .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center}
     .login-card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);padding:40px;width:100%;max-width:380px}
-    .login-card .logo{width:56px;height:56px;background:#ee4d2d;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+    .login-card .logo{width:56px;height:56px;background:linear-gradient(135deg,#ee4d2d,#c0392b);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
     .login-card h2{text-align:center;margin-bottom:24px;font-size:20px}
     .form-group{margin-bottom:16px}
-    .actions{display:flex;gap:8px}
+    .actions{display:flex;gap:6px;flex-wrap:wrap}
+    .back-link{display:inline-flex;align-items:center;gap:6px;color:#6c757d;text-decoration:none;font-size:13px;margin-bottom:16px}
+    .back-link:hover{color:#ee4d2d}
+    .num-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#ee4d2d;color:#fff;font-size:11px;font-weight:700}
+    .empty{text-align:center;color:#6c757d;padding:32px;font-size:14px}
   </style>
 </head>
 <body>${content}</body>
@@ -63,7 +78,6 @@ function adminLayout(content: string, title = "Admin Panel"): string {
 
 router.get(ADMIN_PATH, (req: Request, res: Response) => {
   if (isAdminAuthed(req)) return res.redirect(`${ADMIN_PATH}/dashboard`);
-
   const err = req.query.error ? `<div class="alert alert-error">Password salah</div>` : "";
   res.send(adminLayout(`
     <div class="login-wrap">
@@ -104,52 +118,71 @@ router.get(`${ADMIN_PATH}/dashboard`, async (req: Request, res: Response) => {
   const tokens = await listTokens();
   const now = new Date();
 
-  const msg = req.query.msg
-    ? `<div class="alert alert-success">${req.query.msg}</div>`
-    : req.query.err
-    ? `<div class="alert alert-error">${req.query.err}</div>`
-    : "";
+  const totalSuccess = tokens.reduce((a, t) => a + parseInt(t.success_count || 0), 0);
+  const totalError = tokens.reduce((a, t) => a + parseInt(t.error_count || 0), 0);
+  const totalCalls = totalSuccess + totalError;
+  const activeTokens = tokens.filter(t => t.is_active && new Date(t.expires_at) >= now).length;
+
+  const msg = req.query.msg ? `<div class="alert alert-success">${req.query.msg}</div>`
+    : req.query.err ? `<div class="alert alert-error">${req.query.err}</div>` : "";
 
   const tokenRows = tokens.map((t) => {
     const expired = new Date(t.expires_at) < now;
-    let badgeClass = "badge-active";
-    let badgeText = "Aktif";
+    let badgeClass = "badge-active", badgeText = "Aktif";
     if (!t.is_active) { badgeClass = "badge-revoked"; badgeText = "Dicabut"; }
     else if (expired) { badgeClass = "badge-expired"; badgeText = "Expired"; }
 
+    const successCount = parseInt(t.success_count || 0);
+    const errorCount = parseInt(t.error_count || 0);
+    const totalCount = successCount + errorCount;
+
     return `<tr>
-      <td><span class="token-val">${t.token}</span></td>
-      <td>${t.label || "-"}</td>
+      <td><span class="token-val">${t.token.slice(0, 16)}...${t.token.slice(-8)}</span></td>
+      <td>${t.label || "<em style='color:#aaa'>-</em>"}</td>
       <td><span class="badge ${badgeClass}">${badgeText}</span></td>
       <td>${new Date(t.created_at).toLocaleString("id-ID")}</td>
       <td>${new Date(t.expires_at).toLocaleString("id-ID")}</td>
+      <td>
+        <span style="color:#0f5132;font-weight:600">${successCount}✓</span>
+        <span style="color:#842029;font-weight:600;margin-left:8px">${errorCount}✗</span>
+        <span style="color:#6c757d;font-size:11px;margin-left:6px">(${totalCount})</span>
+      </td>
       <td class="actions">
-        ${t.is_active && !expired ? `<form method="POST" action="${ADMIN_PATH}/revoke" style="display:inline"><input type="hidden" name="id" value="${t.id}"/><button type="submit" class="btn btn-secondary">Cabut</button></form>` : ""}
-        <form method="POST" action="${ADMIN_PATH}/delete" style="display:inline"><input type="hidden" name="id" value="${t.id}"/><button type="submit" class="btn btn-danger" onclick="return confirm('Hapus token ini?')">Hapus</button></form>
+        <a href="${ADMIN_PATH}/logs/${t.id}" class="btn-info" style="border-radius:6px">Log</a>
+        ${t.is_active && !expired ? `<form method="POST" action="${ADMIN_PATH}/revoke" style="display:inline"><input type="hidden" name="id" value="${t.id}"/><button class="btn btn-secondary">Cabut</button></form>` : ""}
+        <form method="POST" action="${ADMIN_PATH}/delete" style="display:inline"><input type="hidden" name="id" value="${t.id}"/><button class="btn btn-danger" onclick="return confirm('Hapus token ini?')">Hapus</button></form>
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="6" style="text-align:center;color:#6c757d;padding:24px">Belum ada token</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="empty">Belum ada token</td></tr>`;
 
   res.send(adminLayout(`
     <div class="topbar">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
       <h1>Shopee Checker Admin</h1>
-      <a href="${ADMIN_PATH}/logout">Keluar</a>
+      <div class="nav">
+        <a href="${ADMIN_PATH}/dashboard" class="active">Dashboard</a>
+      </div>
+      <a href="${ADMIN_PATH}/logout" class="logout">Keluar</a>
     </div>
     <div class="container">
       ${msg}
+      <div class="stats">
+        <div class="stat-card"><div class="val">${tokens.length}</div><div class="lbl">Total Token</div></div>
+        <div class="stat-card"><div class="val" style="color:#0f5132">${activeTokens}</div><div class="lbl">Token Aktif</div></div>
+        <div class="stat-card"><div class="val">${totalCalls}</div><div class="lbl">Total Request</div></div>
+        <div class="stat-card"><div class="val" style="color:#0f5132">${totalSuccess}</div><div class="lbl">Berhasil</div></div>
+        <div class="stat-card"><div class="val" style="color:#842029">${totalError}</div><div class="lbl">Gagal</div></div>
+      </div>
+
       <div class="card">
-        <h2>Generate Token Baru</h2>
+        <h2>🔑 Generate Token Baru</h2>
         <form method="POST" action="${ADMIN_PATH}/generate">
           <div class="form-group">
             <label>Label / Keterangan</label>
             <input type="text" name="label" placeholder="Contoh: Token untuk client A"/>
           </div>
           <div class="row" style="margin-bottom:16px">
-            <div class="col">
-              <label>Nilai</label>
-              <input type="number" name="exp_value" value="30" min="1" required/>
-            </div>
+            <div class="col"><label>Nilai</label><input type="number" name="exp_value" value="30" min="1" required/></div>
             <div class="col">
               <label>Satuan</label>
               <select name="exp_unit">
@@ -165,10 +198,10 @@ router.get(`${ADMIN_PATH}/dashboard`, async (req: Request, res: Response) => {
       </div>
 
       <div class="card">
-        <h2>Daftar Token (${tokens.length})</h2>
+        <h2>📋 Daftar Token <span class="num-badge">${tokens.length}</span></h2>
         <div style="overflow-x:auto">
           <table>
-            <thead><tr><th>Token</th><th>Label</th><th>Status</th><th>Dibuat</th><th>Expires</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Token</th><th>Label</th><th>Status</th><th>Dibuat</th><th>Expires</th><th>Penggunaan</th><th>Aksi</th></tr></thead>
             <tbody>${tokenRows}</tbody>
           </table>
         </div>
@@ -177,12 +210,58 @@ router.get(`${ADMIN_PATH}/dashboard`, async (req: Request, res: Response) => {
   `, "Dashboard"));
 });
 
-router.post(`${ADMIN_PATH}/generate`, async (req: Request, res: Response) => {
+router.get(`${ADMIN_PATH}/logs/:id`, async (req: Request, res: Response) => {
   if (!isAdminAuthed(req)) return res.redirect(ADMIN_PATH);
 
+  const tokenId = parseInt(req.params.id);
+  const logs = await listTokenLogs(tokenId, 100);
+
+  const logRows = logs.map((l) => {
+    const statusBadge = l.status === "success"
+      ? `<span class="badge badge-success">✓ Berhasil</span>`
+      : `<span class="badge badge-error">✗ Gagal</span>`;
+
+    return `<tr>
+      <td>${new Date(l.created_at).toLocaleString("id-ID")}</td>
+      <td style="font-family:monospace">${l.phone || "-"}</td>
+      <td>${statusBadge}</td>
+      <td>${l.error_reason || "-"}</td>
+      <td><code style="font-size:11px">${l.http_status || "-"}</code></td>
+      <td style="font-family:monospace;font-size:11px">${l.ip || "-"}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">Belum ada log untuk token ini</td></tr>`;
+
+  res.send(adminLayout(`
+    <div class="topbar">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      <h1>Shopee Checker Admin</h1>
+      <div class="nav">
+        <a href="${ADMIN_PATH}/dashboard">Dashboard</a>
+      </div>
+      <a href="${ADMIN_PATH}/logout" class="logout">Keluar</a>
+    </div>
+    <div class="container">
+      <a href="${ADMIN_PATH}/dashboard" class="back-link">
+        ← Kembali ke Dashboard
+      </a>
+      <div class="card">
+        <h2>📊 Log Penggunaan Token #${tokenId}</h2>
+        <p style="font-size:13px;color:#6c757d;margin-bottom:20px">Menampilkan 100 log terbaru</p>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Waktu</th><th>Nomor HP</th><th>Status</th><th>Keterangan</th><th>HTTP</th><th>IP</th></tr></thead>
+            <tbody>${logRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `, `Log Token #${tokenId}`));
+});
+
+router.post(`${ADMIN_PATH}/generate`, async (req: Request, res: Response) => {
+  if (!isAdminAuthed(req)) return res.redirect(ADMIN_PATH);
   const { label, exp_value, exp_unit } = req.body;
   const val = parseInt(exp_value) || 30;
-
   const expiresAt = new Date();
   if (exp_unit === "hours") expiresAt.setHours(expiresAt.getHours() + val);
   else if (exp_unit === "months") expiresAt.setMonth(expiresAt.getMonth() + val);
