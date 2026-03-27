@@ -49,3 +49,14 @@ timeoutMs = 20000
 [nix]
 channel = "stable-25_05"
 packages = ["gitFull", "playwright-driver"]
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_DB_URL = "postgresql://postgres:/X4f#,qZnDiS3*X@db.jfsyibjkrydxdvdmspfn.supabase.co:5432/postgres"
+ADMIN_PASSWORD = "Bonekori123@"
+SUPABASE_HOST = "db.jfsyibjkrydxdvdmspfn.supabase.co"
+SUPABASE_PORT = "5432"
+SUPABASE_USER = "postgres"
+SUPABASE_PASSWORD = "/X4f#,qZnDiS3*X"
+SUPABASE_DATABASE = "postgres"

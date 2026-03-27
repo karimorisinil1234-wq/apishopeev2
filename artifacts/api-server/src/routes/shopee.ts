@@ -1,16 +1,17 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createProxyMiddleware, type RequestHandler } from "http-proxy-middleware";
+import { requireToken } from "../lib/tokenMiddleware";
 
 const router: IRouter = Router();
 
 const SHOPEE_SERVICE_PORT = process.env["SHOPEE_SERVICE_PORT"] ?? "5000";
 const SHOPEE_SERVICE_URL = `http://localhost:${SHOPEE_SERVICE_PORT}`;
 
-export const shopeeProxyMiddleware: RequestHandler = createProxyMiddleware({
+const proxyHandler: RequestHandler = createProxyMiddleware({
   target: SHOPEE_SERVICE_URL,
   changeOrigin: false,
   on: {
-    error: (err, _req, res) => {
+    error: (_err, _req, res) => {
       (res as Response).status(503).json({
         status: "error",
         message: "Shopee Checker service sedang tidak tersedia, coba lagi dalam beberapa detik",
@@ -19,6 +20,7 @@ export const shopeeProxyMiddleware: RequestHandler = createProxyMiddleware({
   },
 });
 
-router.use("/shopee", shopeeProxyMiddleware);
+router.get("/health", proxyHandler);
+router.get("/check", requireToken, proxyHandler);
 
 export default router;
