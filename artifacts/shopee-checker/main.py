@@ -32,7 +32,7 @@ log = logging.getLogger("shopee_checker")
 # ========================
 # CONFIG
 # ========================
-POOL_SIZE = 2
+POOL_SIZE = 3
 CHROME_ARGS = [
     "--no-sandbox",
     "--disable-dev-shm-usage",
@@ -56,8 +56,8 @@ CHROME_ARGS = [
 RETRYABLE_STATUSES = {"error", "blocked", "unknown", "timeout"}
 
 MAX_RETRIES = 2  # Total coba: 1 awal + 2 ulang = 3x
-RETRY_DELAY_MIN = 3.0
-RETRY_DELAY_MAX = 7.0
+RETRY_DELAY_MIN = 1.0
+RETRY_DELAY_MAX = 2.5
 
 # ========================
 # USER AGENT PROFILES
@@ -243,7 +243,7 @@ async def dismiss_popups(page) -> None:
             btn = await page.query_selector(sel)
             if btn and await btn.is_visible():
                 await btn.click()
-                await page.wait_for_timeout(400)
+                await page.wait_for_timeout(150)
         except Exception:
             continue
 
@@ -270,28 +270,19 @@ async def find_phone_input(page):
     return None
 
 
-async def wait_for_phone_input(page, timeout_ms: int = 20000):
+async def wait_for_phone_input(page, timeout_ms: int = 12000):
     """
-    Tunggu sampai input muncul via JS condition (efficient), lalu kembalikan elemen.
+    Tunggu sampai input muncul pakai wait_for_selector (event-based, tidak polling).
     """
-    js_cond = """
-        () => {
-            const selectors = [
-                "input[name='phoneOrEmail']",
-                "input[name='loginKey']",
-                "input[type='tel']",
-                "input[maxlength='128'][type='text']",
-                "input[maxlength='128'][autocomplete='off']",
-                "input[type='text']:not([readonly]):not([disabled])"
-            ];
-            for (const s of selectors) {
-                try { if (document.querySelector(s)) return true; } catch(e) {}
-            }
-            return false;
-        }
-    """
+    FAST_SELECTOR = (
+        "input[name='phoneOrEmail'],"
+        "input[name='loginKey'],"
+        "input[type='tel'],"
+        "input[maxlength='128'][type='text'],"
+        "input[maxlength='128'][autocomplete='off']"
+    )
     try:
-        await page.wait_for_function(js_cond, timeout=timeout_ms)
+        await page.wait_for_selector(FAST_SELECTOR, state="visible", timeout=timeout_ms)
     except Exception:
         return None
     return await find_phone_input(page)
@@ -325,6 +316,22 @@ async def check_phone_async(phone_number: str) -> dict:
         )
         page = await context.new_page()
 
+        # Block resource berat yang tidak diperlukan → page load jauh lebih cepat
+        BLOCKED_TYPES = {"image", "media", "font", "other"}
+        BLOCKED_DOMAINS = ("google-analytics", "googletagmanager", "amplitude", "mixpanel",
+                           "doubleclick", "facebook.net", "adjust.com", "appsflyer",
+                           "shopee.io/rum", "cdn-akamai", "sentry")
+        async def block_resources(route, request):
+            rt = request.resource_type
+            if rt in BLOCKED_TYPES:
+                await route.abort()
+                return
+            if any(d in request.url for d in BLOCKED_DOMAINS):
+                await route.abort()
+                return
+            await route.continue_()
+        await page.route("**/*", block_resources)
+
         # Stealth dengan UA override agar cocok dengan context UA
         await Stealth(
             navigator_user_agent_override=ua,
@@ -355,7 +362,7 @@ async def check_phone_async(phone_number: str) -> dict:
             for reset_url in RESET_URLS:
                 log.info(f"[{display_number}] Buka langsung {reset_url}...")
                 try:
-                    await page.goto(reset_url, wait_until="domcontentloaded", timeout=25000)
+                    await page.goto(reset_url, wait_until="commit", timeout=15000)
                 except Exception as e:
                     log.warning(f"[{display_number}] Gagal goto {reset_url}: {e}")
                     continue
@@ -370,7 +377,7 @@ async def check_phone_async(phone_number: str) -> dict:
 
                 # Input belum muncul — dismiss popup sekali lalu cek lagi
                 await dismiss_popups(page)
-                await page.wait_for_timeout(600)
+                await page.wait_for_timeout(200)
                 phone_input = await find_phone_input(page)
                 if phone_input:
                     used_reset_url = reset_url
@@ -405,7 +412,7 @@ async def check_phone_async(phone_number: str) -> dict:
 
             # fill() memicu React state update dan phone formatter Shopee
             await phone_input.fill(display_number)
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(150)
 
             filled_val = await page.evaluate("el => el.value", phone_input)
             log.info(f"[{display_number}] Input value setelah fill: '{filled_val}'")
@@ -422,11 +429,11 @@ async def check_phone_async(phone_number: str) -> dict:
             await phone_input.press("Enter")
             log.info(f"[{display_number}] Enter ditekan, menunggu respons API...")
 
-            # ---- Langkah 7: Tunggu respons API (maks 12 detik) ----
+            # ---- Langkah 7: Tunggu respons API (maks 7 detik) ----
             try:
-                await asyncio.wait_for(api_event.wait(), timeout=12.0)
+                await asyncio.wait_for(api_event.wait(), timeout=7.0)
             except asyncio.TimeoutError:
-                log.warning(f"[{display_number}] Tidak ada respons API dalam 12 detik")
+                log.warning(f"[{display_number}] Tidak ada respons API dalam 7 detik")
 
             # Cek apakah halaman di-redirect ke traffic/error (bot detected)
             current_url = page.url
