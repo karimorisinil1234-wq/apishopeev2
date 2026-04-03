@@ -5,8 +5,12 @@ nixPkgs = ["python312", "chromium"]
 
 [phases.install]
 cmds = [
-  "pip install -r artifacts/shopee-checker/requirements.txt"
+  "python3 -m pip install --no-cache-dir -r artifacts/shopee-checker/requirements.txt"
 ]
+
+[variables]
+PLAYWRIGHT_BROWSERS_PATH = "0"
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "/run/current-system/sw/bin/chromium"
 
 [start]
 cmd = "cd artifacts/shopee-checker && uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1"
