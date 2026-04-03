@@ -3,7 +3,7 @@ nixPkgs = ["python312", "chromium"]
 
 [phases.install]
 cmds = [
-  "python3 -m pip install --no-cache-dir -r requirements.txt"
+  "uv pip install --system --no-cache -r requirements.txt"
 ]
 
 [variables]

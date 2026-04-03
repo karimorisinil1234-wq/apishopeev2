@@ -5,7 +5,7 @@ nixPkgs = ["python312", "chromium"]
 
 [phases.install]
 cmds = [
-  "python3 -m pip install --no-cache-dir -r artifacts/shopee-checker/requirements.txt"
+  "uv pip install --system --no-cache -r artifacts/shopee-checker/requirements.txt"
 ]
 
 [variables]
