@@ -1,9 +1,9 @@
 [phases.setup]
-nixPkgs = ["python312", "chromium"]
+nixPkgs = ["python312", "python312Packages.pip", "chromium"]
 
 [phases.install]
 cmds = [
-  "uv pip install --system --no-cache -r requirements.txt"
+  "pip3 install --no-cache-dir -r requirements.txt"
 ]
 
 [variables]
