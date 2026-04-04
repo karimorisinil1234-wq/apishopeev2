@@ -236,7 +236,7 @@ PHONE_INPUT_XPATH = [
 # URL reset page — scenario=7 dulu, fallback ke scenario=3
 RESET_URLS = [
     "https://shopee.co.id/buyer/reset?scenario=7",
-    "https://shopee.co.id/buyer/reset?scenario=3",
+    "https://shopee.co.id/buyer/reset?scenario=",
 ]
 
 POPUP_SELECTORS = [
