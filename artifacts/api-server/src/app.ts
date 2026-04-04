@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import router from "./routes";
 import adminRouter from "./routes/admin";
@@ -43,16 +44,16 @@ app.use("/api", router);
 app.use("/shopee", shopeeRouter);
 app.use("/", adminRouter);
 
-// Serve React frontend static files (production Railway deployment)
+// Serve React frontend static files (production deployment only)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const staticPath = process.env["STATIC_FILES_PATH"] || path.resolve(__dirname, "../../public");
-app.use(express.static(staticPath, { index: "index.html" }));
-
-// SPA fallback — serve index.html for all non-API routes
-app.use((_req, res) => {
-  res.sendFile(path.join(staticPath, "index.html"));
-});
+if (fs.existsSync(staticPath)) {
+  app.use(express.static(staticPath, { index: "index.html" }));
+  app.use((_req, res) => {
+    res.sendFile(path.join(staticPath, "index.html"));
+  });
+}
 
 initDb().catch((err) => logger.error({ err }, "DB init failed"));
 

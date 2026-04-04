@@ -32,7 +32,9 @@ log = logging.getLogger("shopee_checker")
 # ========================
 # CONFIG
 # ========================
-POOL_SIZE = 3
+POOL_SIZE = 5           # Browser concurrent slots
+QUEUE_TIMEOUT  = 25    # Detik max nunggu browser kosong
+MAX_WAITING    = 15    # Maksimal request antri sebelum ditolak
 CHROME_ARGS = [
     "--no-sandbox",
     "--disable-dev-shm-usage",
@@ -114,24 +116,28 @@ class BrowserPool:
         self.size = size
         self._queue: asyncio.Queue = asyncio.Queue()
         self._playwright = None
-        self._browsers: list[Browser] = []
+        self._launch_kwargs: dict = {}
+        self._waiting: int = 0   # jumlah request yang sedang antri
+
+    async def _launch_browser(self) -> Browser:
+        return await self._playwright.chromium.launch(**self._launch_kwargs)
 
     async def start(self):
         self._playwright = await async_playwright().start()
         chromium_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
-        launch_kwargs = {"headless": True, "args": CHROME_ARGS}
+        self._launch_kwargs = {"headless": True, "args": CHROME_ARGS}
         if chromium_path:
-            launch_kwargs["executable_path"] = chromium_path
+            self._launch_kwargs["executable_path"] = chromium_path
             log.info(f"Menggunakan system Chromium: {chromium_path}")
         for _ in range(self.size):
-            browser = await self._playwright.chromium.launch(**launch_kwargs)
-            self._browsers.append(browser)
+            browser = await self._launch_browser()
             await self._queue.put(browser)
         log.info(f"Browser pool started dengan {self.size} instance")
 
     async def stop(self):
-        for browser in self._browsers:
+        while not self._queue.empty():
             try:
+                browser = self._queue.get_nowait()
                 await browser.close()
             except Exception:
                 pass
@@ -141,11 +147,48 @@ class BrowserPool:
 
     @asynccontextmanager
     async def acquire(self):
-        browser = await self._queue.get()
+        # Tolak langsung jika antrian sudah terlalu panjang
+        if self._waiting >= MAX_WAITING:
+            raise RuntimeError("Server sedang sangat sibuk, coba beberapa saat lagi")
+
+        self._waiting += 1
+        try:
+            try:
+                browser = await asyncio.wait_for(
+                    self._queue.get(), timeout=QUEUE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    f"Server sibuk, tidak ada browser kosong dalam {QUEUE_TIMEOUT}s"
+                )
+        finally:
+            self._waiting -= 1
+
+        # Cek apakah browser masih hidup; jika tidak, buat yang baru
+        try:
+            if not browser.is_connected():
+                log.warning("Browser crashed, membuat instance baru...")
+                browser = await self._launch_browser()
+        except Exception:
+            browser = await self._launch_browser()
+
         try:
             yield browser
         finally:
-            await self._queue.put(browser)
+            # Kembalikan ke pool — jika browser crash, ganti dengan yang baru
+            try:
+                if browser.is_connected():
+                    await self._queue.put(browser)
+                else:
+                    log.warning("Browser tidak connected setelah dipakai, ganti baru...")
+                    new_browser = await self._launch_browser()
+                    await self._queue.put(new_browser)
+            except Exception:
+                try:
+                    new_browser = await self._launch_browser()
+                    await self._queue.put(new_browser)
+                except Exception:
+                    pass
 
 
 browser_pool: BrowserPool = None
@@ -192,8 +235,8 @@ PHONE_INPUT_XPATH = [
 
 # URL reset page — scenario=7 dulu, fallback ke scenario=3
 RESET_URLS = [
-    "https://shopee.co.id/buyer/reset",
-    "https://shopee.co.id/buyer/reset",
+    "https://shopee.co.id/buyer/reset?scenario=7",
+    "https://shopee.co.id/buyer/reset?scenario=3",
 ]
 
 POPUP_SELECTORS = [
@@ -578,10 +621,14 @@ async def check(phone: str = Query(..., description="Nomor HP, contoh: 628123456
 
 @app.get("/health")
 async def health():
+    available = browser_pool._queue.qsize() if browser_pool else 0
+    waiting   = browser_pool._waiting if browser_pool else 0
     return {
         "status": "ok",
-        "version": "5.1.0",
+        "version": "5.2.0",
         "pool_size": POOL_SIZE,
+        "available_browsers": available,
+        "waiting_requests": waiting,
         "max_retries": MAX_RETRIES,
     }
 
