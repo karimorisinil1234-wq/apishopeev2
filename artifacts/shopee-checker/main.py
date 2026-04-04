@@ -32,9 +32,9 @@ log = logging.getLogger("shopee_checker")
 # ========================
 # CONFIG
 # ========================
-POOL_SIZE = 5           # Browser concurrent slots
-QUEUE_TIMEOUT  = 25    # Detik max nunggu browser kosong
-MAX_WAITING    = 15    # Maksimal request antri sebelum ditolak
+POOL_SIZE     = int(os.environ.get("POOL_SIZE", 3))   # Override via env: POOL_SIZE=5
+QUEUE_TIMEOUT = 25    # Detik max nunggu browser kosong
+MAX_WAITING   = 15    # Maksimal request antri sebelum ditolak
 CHROME_ARGS = [
     "--no-sandbox",
     "--disable-dev-shm-usage",

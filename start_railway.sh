@@ -1,24 +1,26 @@
 #!/bin/bash
 set -e
 
-export PLAYWRIGHT_BROWSERS_PATH=0
-export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-export SHOPEE_SERVICE_PORT=5000
-
-echo "Starting Python Shopee Checker on port 5000..."
-PORT=5000 python3 main.py &
-PYTHON_PID=$!
-
-# Wait for Python service to be ready (max 30s)
-echo "Waiting for Python service..."
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
-    echo "Python service ready after ${i}s!"
+# Auto-detect chromium binary path
+for candidate in /usr/bin/chromium /usr/bin/chromium-browser /usr/lib/chromium/chromium; do
+  if [ -x "$candidate" ]; then
+    export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$candidate"
     break
   fi
-  sleep 1
 done
 
-RAILWAY_PORT="${PORT:-8080}"
-echo "Starting Express API + frontend on port $RAILWAY_PORT..."
-cd /app/api-server && PORT="$RAILWAY_PORT" node dist/index.mjs
+if [ -z "$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" ]; then
+  # Last resort: search in PATH
+  FOUND=$(which chromium 2>/dev/null || which chromium-browser 2>/dev/null || echo "")
+  if [ -n "$FOUND" ]; then
+    export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$FOUND"
+  else
+    echo "ERROR: Chromium tidak ditemukan!" && exit 1
+  fi
+fi
+
+export PLAYWRIGHT_BROWSERS_PATH=0
+echo "Using Chromium: $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
+
+PORT="${PORT:-8080}"
+exec python3 -m uvicorn main:app --host 0.0.0.0 --port "$PORT" --workers 1
